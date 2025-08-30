@@ -8,12 +8,12 @@
 </head>
 <body>
   <h1>Optimizing the FreeBSD Boot Process</h1>
-  <p class="meta">By Lahiru Gunathilake. August 24, 2025</p>
+  <p class="meta">Lahiru Gunathilake. August 24, 2025</p>
 
   <img src="../images/Theme_image.png" alt="FreeBSD Boot Flame Chart">
 
   <p>
-    Optimizing the boot process of FreeBSD is come up as a <b>Google Summer of Code</b> Project in 2025. This project has been supervised by <i>Colin Percival</i> and <i>Toomas Soome</i>. The optimization was approached by first gaining the foundational understanding of the boot process of FreeBSD by going through the system documentation from the <a href="https://wiki.freebsd.org/BootTime">FreeBSD Boot Time wiki</a> and the paper <a href="https://www.daemonology.net/papers/bootprofiling.pdf">Profiling the FreeBSD Boot Process</a>. This helped to establish an initial perspective on how the boot sequence is structured and where delays are typically encountered.
+    Optimizing the boot process of FreeBSD came up as a <b>Google Summer of Code</b> Project in 2025. This project has been supervised by <i>Colin Percival</i> and <i>Toomas Soome</i>. The optimization was approached by first gaining the fundamental understanding of the boot process of FreeBSD operating system by going through the system documentation from the <a href="https://wiki.freebsd.org/BootTime">FreeBSD Boot Time wiki</a> and the paper <a href="https://www.daemonology.net/papers/bootprofiling.pdf">Profiling the FreeBSD Boot Process</a>. This helped to establish an initial perspective on how the boot process sequence is structured and where delays are typically encountered.
   </p>
 
   <p>
@@ -40,7 +40,7 @@ options		TSLOG
   </p>
 
   <iframe src="../images/boot_profiling_vm.svg" width="100%" height="300px" style="border:none;"></iframe>
-  <p class="../img_caption">Initial flamechart generated in VM (1.4hrs)</p>
+  <p class="img_caption">Initial flamechart generated in VM (1.4hrs)</p>
 
   <p>However the preliminary analysis highlighted several areas where boot delays could potentially be reduced:</p>
   <ul>
