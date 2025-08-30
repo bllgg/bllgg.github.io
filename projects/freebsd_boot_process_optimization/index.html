@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Optimizing the FreeBSD Boot Process - Kernel Space</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+  <h1>Optimizing the FreeBSD Boot Process - Kernel Space</h1>
+  <p class="meta">Lahiru Gunathilake. August 24, 2025</p>
+
+  <img src="../../images/Theme_image.png" alt="FreeBSD Boot Flame Chart">
+
+  <p>
+    Optimizing the boot process of FreeBSD came up as a <b>Google Summer of Code</b> Project in 2025. This project has been supervised by <i><b>Colin Percival</b></i> and <i><b>Toomas Soome</b></i>. The optimization was approached by first gaining the fundamental understanding of the boot process of FreeBSD operating system by going through the system documentation from the <a href="https://wiki.freebsd.org/BootTime">FreeBSD Boot Time wiki</a> and the paper <a href="https://www.daemonology.net/papers/bootprofiling.pdf">Profiling the FreeBSD Boot Process</a>. This helped to establish an initial perspective on how the boot process sequence is structured and where delays are typically encountered.
+  </p>
+
+  <p>
+    In the first stage, FreeBSD was installed on a <b>Virtual Box</b> virtual machine. After that the FreeBSD source code was cloned from <a href="https://git.freebsd.org/src.git">https://git.freebsd.org/src.git</a> into <code>/usr/src</code> directory in the FreeBSD System. Then, a seperate configuration named <code>BOOT_PROF</code> was created by inheriting the <code>GENERIC</code> profile by enabling the option <code>TSLOG</code> in <code>/usr/src/sys/amd64/conf/BOOT_PROF</code>.
+</p>
+<pre><code>include GENERIC
+
+# Boot profiling
+options		TSLOG
+</code></pre>
+<p>    
+    Then the kernel was built and installed using make buildkernel and make install kernel. The boot sequence profiling tool available at <a href="https://github.com/bllgg/freebsd-boot-profiling">freebsd-boot-profiling</a> was utilized to generate flamecharts to identify the delays and the bottlenecks in the system boot process.
+  </p>
+
+  <pre><code>sh mkflame.sh &gt; [filename].svg</code></pre>
+
+  <p>
+    Execution of the above produced the first flame chart of the FreeBSD boot sequence. For data transfer, images were shared with remote systems either by piping output through <code>curl</code> into <a href="https://dpaste.com/">dpaste.com</a> or by installing and enabling a desktop environment such as "KDE" on FreeBSD.
+  </p>
+
+  <h2>Initial Findings in the Virtual Machine Environment</h2>
+  <p>
+    The initial flame chart revealed that BIOS time was reported as excessively long (5055574 ms ~ 1.4 hrs). This behavior was attributed to the virtualized environment, where CPU time is obtained from the host operating system and not reset at the moment the virtual machine is powered on.
+  </p>
+
+  <iframe src="../../images/boot_profiling_vm.svg" width="100%" height="300px" style="border:none;"></iframe>
+  <p class="img_caption">Initial flamechart generated in VM indicated nearly 1.4hrs of startup time (Please scroll right)</p>
+
+  <p>
+    As main findings, the following areas were identified in the kernel space as potential bottlenecks in the boot process:
+    <ul>
+      <li>Considerable time consumption in clock calibration</li>
+      <li>Device attachment time</li>
+      <li>Boot loader init time</li>
+      <li>Initialization of the root filesystem</li>
+    </ul>
+  </p>
+
+  <h2>Transition to Physical Hardware</h2>
+  <p>
+    To achieve more accurate and reliable results, boot profiling was repeated on a physical hardware with the following specifications:
+    <ul>
+      <li>Processor: Intel(R) Core (TM) i5-8250U CPU @ 1.60GHz</li>
+      <li>Architecture: AMD 64</li>
+      <li>Physical Memory: 8 GB</li>
+    </ul>
+    The physical hardware environment provided a more realistic representation of the boot process, eliminating the anomalies observed in the virtual machine setup. Subsequent research revealed that more significant opportunities existed in device attachment routines and ZFS initialization in kernel space. The clock calibration <code>clockcalib</code> which took additional time in the virtual machine did not appeared in the physical hardware. The time spent in the bootloader was happend due to the 20 seconds delay to choose boot options. When the <code>autoboot_delay</code> was reduced to "0", that time flame has disappeared. 
+  </p>
+
+  <iframe src="../../images/tslog_new2.svg" width="100%" height="390px" style="border:none;"></iframe>
+  <p class="img_caption">Initial flamechart generated in physical hardware (42s boot time with 8.2s kernel initialization time)</p>
+
+  <p>
+    The flame chart produced under this environment exposed the following critical delays in the kernel:
+    <ul>
+      <li><code>DEVICE_ATTACH atkbd</code> and <code>DEVICE_ATTACH psm</code> (PS2 keyboard and PS2 mouse initialization)</li>
+      <li><code>SYSINIT zfsctrlmodule</code></li>
+      <li>Sleeps in <code>vfs_mountroot</code></li>
+    </ul>
+  </p>
+  
+
+  <h2>Optimization Efforts</h2>
+
+  <p>By adding TS logs to the FreeBSD tree, deeper insights were gained into the boot process and identify specific areas for optimization as the following image shows.</p>
+
+  <iframe src="../../images/tslog_new18.svg" width="100%" height="400px" style="border:none;"></iframe>
+  <p class="img_caption">Generated flamechart after adding more TS logs in to the FreeBSD source tree in physical hardware (40.7s boot time with 8.5s kernel initialization time)</p>
+
+  <p>
+    The identified bottlenecks were addressed through targeted optimizations as mentioned below.
+  </p>
+
+  <h3>ZFS Initialization</h3>
+  <p>
+    The checksum initialization in <code>zfs_kmod_init</code> was identified as a bottleneck.
+    Benchmarking was being performed with a 16 MB data buffers, which caused unnecessary overhead.
+    This was reduced to 256 KB, resulting in a substantial performance improvement.
+    The issue was discussed with the OpenZFS developers and resolved upstream
+    (<a href="https://github.com/openzfs/zfs/issues/17560">OpenZFS issue #17560</a>).
+  </p>
+
+  <iframe src="../../images/tslog_new23.svg" width="100%" height="420px" style="border:none;"></iframe>
+  <p class="img_caption">Generated flamechart after optimizing the benchmarking (38s boot time with 6.8s kernel initialization time)</p>
+
+  <h3>Keyboard and Mouse Initialization</h3>
+  <p>
+    Significant delays were observed in the <code>atkbd_attach</code> and <code>psmprobe</code> routines, specifically within the
+    <code>empty_both_buffers</code>, <code>reset_kbd</code> and <code>reset_aux_dev</code> functions.
+    These routines contained wait loops originally intended to accommodate older, slower hardware such as 8042 keyboard controller <a href="https://wiki.osdev.org/I8042_PS/2_Controller">8042 keyboard controller</a>. Modern devices no longer require such long delays. By reducing these wait times, the initialization of keyboard and mouse devices was significantly improved. In this improvement a tunable was introduced <code>hw.atkbd.short_delay</code> to set to "zero" in <code>/boot/loader.conf</code> to run freebsd with longer delays if needed in PS2 hardware. <a href="https://github.com/freebsd/freebsd-src/pull/1826">Pull request</a>
+  </p>
+
+  <iframe src="../../images/tslog_new48.svg" width="100%" height="690px" style="border:none;"></iframe>
+  <p class="img_caption">Generated flamechart after optimizing the delays in PS2 keyboard and mouse initialization (34.7s boot time with 3.5s kernel initialization time)</p>
+
+
+  <h3>Root Filesystem Mount (<code>vfs_mountroot</code>)</h3>
+  <p>
+    Investigation into the waits occurring in <code>vfs_mountroot</code> revealed that no feasible optimizations were possible within this subsystem. However, enabling the tunable <code>hw.usb.no_boot_wait=1</code> skips waiting for USB devices to fully initialize during boot. This reduces the kernel’s startup time, as the system no longer pauses for USB device enumeration.
+  </p>
+
+  <iframe src="../../images/tslog_new49.svg" width="100%" height="690px" style="border:none;"></iframe>
+  <p class="img_caption">Generated flamechart after setting the tunable <code>hw.usb.no_boot_wait=1</code> in the <code>/boot/loader.conf</code> (33s boot time with 1.9s kernel initialization time)</p>
+
+  <h2>Results</h2>
+  <p>
+    The optimizations applied to ZFS initialization and keyboard attachment yielded a measurable improvement in kernel initialization (8.2s -> 3.5s). Device attachment and ZFS initialization setup were confirmed as the principal sources of delay within the kernel. With these bottlenecks addressed, focus can now be shifted toward userland optimizations in future work. <a href="https://wiki.freebsd.org/SummerOfCode2025Projects/SpeedUpTheFreeBSDBootProcess">FreeBSD wiki</a>
+  </p>
+
+  <h2>Conclusion</h2>
+  <p>
+    Through kernel-level profiling and analysis, several inefficiencies in the FreeBSD boot process were identified and addressed.
+    Significant gains were achieved by reducing unnecessary waits in input device initialization and by optimizing checksum benchmarking in ZFS initialization.
+    While certain delays such as those in <code>vfs_mountroot</code> remain unavoidable, the applied improvements represent meaningful progress toward faster and more efficient FreeBSD boot performance.
+  </p>
+</body>
+</html>
