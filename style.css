@@ -1,0 +1,56 @@
+body {
+  font-family: Georgia, serif;
+  line-height: 1.6;
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  color: #222;
+  background: #fafafa;
+}
+
+h1, h2, h3 {
+  font-family: Helvetica, Arial, sans-serif;
+  color: #333;
+  margin-top: 2em;
+}
+
+pre {
+  background: #f4f4f4;
+  padding: 0.8em;
+  border-radius: 5px;
+  overflow-x: auto;
+}
+
+code {
+  background: #eee;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: Consolas, monospace;
+}
+
+ul {
+  margin-left: 1.5em;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+  margin: 1em auto;
+}
+
+.meta {
+  font-size: 0.9em;
+  color: #666;
+  margin-top: -0.5em;
+  margin-bottom: 2em;
+  font-style: italic;
+}
+
+.img_caption {
+  font-size: 0.7em;
+  color: #666;
+  margin-top: -0.5em;
+  margin-bottom: 2em;
+  font-style: italic;
+  text-align: center;
+}
