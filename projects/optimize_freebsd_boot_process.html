@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <title>Optimizing the FreeBSD Boot Process</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="../style.css">
 </head>
 <body>
   <h1>Optimizing the FreeBSD Boot Process</h1>
   <p class="meta">By Lahiru Gunathilake. August 24, 2025</p>
 
-  <img src="images/Theme_image.png" alt="FreeBSD Boot Flame Chart">
+  <img src="../images/Theme_image.png" alt="FreeBSD Boot Flame Chart">
 
   <p>
     Optimizing the boot process of FreeBSD is come up as a <b>Google Summer of Code</b> Project in 2025. This project has been supervised by <i>Colin Percival</i> and <i>Toomas Soome</i>. The optimization was approached by first gaining the foundational understanding of the boot process of FreeBSD by going through the system documentation from the <a href="https://wiki.freebsd.org/BootTime">FreeBSD Boot Time wiki</a> and the paper <a href="https://www.daemonology.net/papers/bootprofiling.pdf">Profiling the FreeBSD Boot Process</a>. This helped to establish an initial perspective on how the boot sequence is structured and where delays are typically encountered.
@@ -39,8 +39,8 @@ options		TSLOG
     The initial flame chart revealed that BIOS time was reported as excessively long (5055574 ms ~ 1.4 hrs). This behavior was attributed to the virtualized environment, where CPU time is obtained from the host operating system and not reset at the moment the virtual machine is powered on.
   </p>
 
-  <iframe src="images/boot_profiling_vm.svg" width="100%" height="300px" style="border:none;"></iframe>
-  <p class="img_caption">Initial flamechart generated in VM (1.4hrs)</p>
+  <iframe src="../images/boot_profiling_vm.svg" width="100%" height="300px" style="border:none;"></iframe>
+  <p class="../img_caption">Initial flamechart generated in VM (1.4hrs)</p>
 
   <p>However the preliminary analysis highlighted several areas where boot delays could potentially be reduced:</p>
   <ul>
@@ -61,7 +61,7 @@ options		TSLOG
     Subsequent research revealed that more significant opportunities existed in device attachment routines, ZFS initialization, and PS/2 keyboard and mouse initialization. The clock calibrarion took additional time because it was running on a Virtual machine and it wasn't appeared in the physical device.
   </p>
 
-  <iframe src="images/tslog_new2.svg" width="100%" height="390px" style="border:none;"></iframe>
+  <iframe src="../images/tslog_new2.svg" width="100%" height="390px" style="border:none;"></iframe>
   <p class="img_caption">Initial flamechart generated in VM (42s boot time with 8.2 kernel initialization time)</p>
 
   <p>
