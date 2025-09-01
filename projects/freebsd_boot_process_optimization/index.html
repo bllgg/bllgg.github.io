@@ -47,7 +47,7 @@ options		TSLOG
     The initial flame chart revealed that BIOS time was reported as excessively long (5055574 ms ~ 1.4 hrs). This behavior was attributed to the virtualized environment, where CPU time is obtained from the host operating system, and it was not reset at the moment the virtual machine is powered on.
   </p>
 
-  <iframe src="../../images/boot_profiling_vm.svg" width="100%" height="300px" style="border:none;"></iframe>
+  <iframe title="Initial flamechart" src="../../images/boot_profiling_vm.svg" width="100%" height="300px" style="border:none;"></iframe>
   <p class="img_caption">Initial flamechart generated in VM indicated nearly 1.4hrs of startup time (Please scroll to the right)</p>
 
   <p>
@@ -73,7 +73,7 @@ options		TSLOG
     The physical hardware environment provided a more realistic representation of the boot process, eliminating the anomalies observed in the virtual machine setup. Subsequent research revealed that more significant opportunities existed in device attachment routines and ZFS initialization in kernel space. The clock calibration <code>clockcalib</code> time which took additional time in the virtual machine did not appeared in the physical hardware. The time spent in the bootloader was happend due to the 10 seconds delay to choose boot options. When the <code>autoboot_delay</code> was reduced to "0", that time flame has disappeared.
   </p>
 
-  <iframe src="../../images/tslog_new2.svg" width="100%" height="390px" style="border:none;"></iframe>
+  <iframe title="Initial flamechart in the physical hardware" src="../../images/tslog_new2.svg" width="100%" height="390px" style="border:none;"></iframe>
   <p class="img_caption">Initial flamechart generated in the physical hardware (42s boot time with 8.2s kernel initialization time)</p>
 
   <p>
@@ -90,7 +90,7 @@ options		TSLOG
 
   <p>By adding TS logs to the FreeBSD source tree, deeper insights were gained into the boot process and identified specific areas for optimization, as the following image shows.</p>
 
-  <iframe src="../../images/tslog_new18.svg" width="100%" height="400px" style="border:none;"></iframe>
+  <iframe title="Generated flamechart after adding more TS logs into the FreeBSD source tree in physical hardware" src="../../images/tslog_new18.svg" width="100%" height="400px" style="border:none;"></iframe>
   <p class="img_caption">Generated flamechart after adding more TS logs into the FreeBSD source tree in physical hardware</p>
 
   <p>
@@ -103,7 +103,7 @@ options		TSLOG
     (<a href="https://github.com/openzfs/zfs/issues/17560">OpenZFS issue #17560</a>).
   </p>
 
-  <iframe src="../../images/tslog_new23.svg" width="100%" height="420px" style="border:none;"></iframe>
+  <iframe title="Generated flamechart after optimizing the benchmarking" src="../../images/tslog_new23.svg" width="100%" height="420px" style="border:none;"></iframe>
   <p class="img_caption">Generated flamechart after optimizing the benchmarking (38s boot time with 6.8s kernel initialization time)</p>
 
   <h3>Keyboard and Mouse Initialization</h3>
@@ -112,7 +112,7 @@ options		TSLOG
     These routines contained wait loops originally intended to accommodate older, slower hardware such as i8042 keyboard controller <a href="https://wiki.osdev.org/I8042_PS/2_Controller">8042 keyboard controller</a>. Modern hardware devices no longer require such long delays. By reducing these wait times, the initialization of keyboard and mouse devices was significantly improved. In this improvement a tunable was introduced <code>hw.atkbd.short_delay</code> to set to "zero" in <code>/boot/loader.conf</code> to run in FreeBSD with longer delays if needed with old PS2 hardware. <a href="https://github.com/freebsd/freebsd-src/pull/1826">Pull request</a>
   </p>
 
-  <iframe src="../../images/tslog_new48.svg" width="100%" height="690px" style="border:none;"></iframe>
+  <iframe title="Generated flamechart after optimizing the delays in PS2 keyboard and mouse initialization" src="../../images/tslog_new48.svg" width="100%" height="690px" style="border:none;"></iframe>
   <p class="img_caption">Generated flamechart after optimizing the delays in PS2 keyboard and mouse initialization (34.7s boot time with 3.5s kernel initialization time)</p>
 
 
@@ -121,7 +121,7 @@ options		TSLOG
     Investigation into the waits occurring in <code>vfs_mountroot</code> revealed that no feasible optimizations were possible within this subsystem at the moment. However, enabling the tunable <code>hw.usb.no_boot_wait=1</code> skips waiting for USB devices to fully initialize during boot. This reduces the kernel’s startup time, as the system no longer pauses for USB device enumeration.
   </p>
 
-  <iframe src="../../images/tslog_new49.svg" width="100%" height="690px" style="border:none;"></iframe>
+  <iframe title="Generated flamechart after setting the tunable hw.usb.no_boot_wait=1" src="../../images/tslog_new49.svg" width="100%" height="690px" style="border:none;"></iframe>
   <p class="img_caption">Generated flamechart after setting the tunable <code>hw.usb.no_boot_wait=1</code> in the <code>/boot/loader.conf</code> (33s boot time with 1.9s kernel initialization time)</p>
 
   <h2>Results and Conclusions</h2>
