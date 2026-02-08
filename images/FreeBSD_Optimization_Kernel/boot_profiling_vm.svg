@@ -1,0 +1,2223 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="252778" height="270" onload="init(evt)" viewBox="0 0 252778 270" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs >
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	.func_g:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	var details, searchbtn, matchedtxt, svg;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+	}
+
+	// mouse-over for info
+	function s(node) {		// show
+		info = g_to_text(node);
+		details.nodeValue = "Function: " + info;
+	}
+	function c() {			// clear
+		details.nodeValue = ' ';
+	}
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	})
+
+	// functions
+	function find_child(parent, name, attr) {
+		var children = parent.childNodes;
+		for (var i=0; i<children.length;i++) {
+			if (children[i].tagName == name)
+				return (attr != undefined) ? children[i].attributes[attr].value : children[i];
+		}
+		return;
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_"+attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_"+attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_"+attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes["width"].value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes["x"].value = parseFloat(r.attributes["x"].value) +3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2*12*0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x=txt.length-2; x>0; x--) {
+			if (t.getSubStringLength(0, x+2) <= w) {
+				t.textContent = txt.substring(0,x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = (parseFloat(e.attributes["x"].value) - x - 10) * ratio + 10;
+				if(e.tagName == "text") e.attributes["x"].value = find_child(e.parentNode, "rect", "x") + 3;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseFloat(e.attributes["width"].value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_child(c[i], x-10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = 10;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseInt(svg.width.baseVal.value) - (10*2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr["width"].value);
+		var xmin = parseFloat(attr["x"].value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr["y"].value);
+		var ratio = (svg.width.baseVal.value - 2*10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "1.0";
+
+		var el = document.getElementsByTagName("g");
+		for(var i=0;i<el.length;i++){
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a["x"].value);
+			var ew = parseFloat(a["width"].value);
+			// Is it an ancestor
+			if (0 == 0) {
+				var upstack = parseFloat(a["y"].value) > ymin;
+			} else {
+				var upstack = parseFloat(a["y"].value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.style["opacity"] = "0.5";
+					zoom_parent(e);
+					e.onclick = function(e){unzoom(); zoom(this);};
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.style["display"] = "none";
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.style["display"] = "none";
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					e.onclick = function(e){zoom(this);};
+					update_text(e);
+				}
+			}
+		}
+	}
+	function unzoom() {
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "0.0";
+
+		var el = document.getElementsByTagName("g");
+		for(i=0;i<el.length;i++) {
+			el[i].style["display"] = "block";
+			el[i].style["opacity"] = "1";
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+	}
+
+	// search
+	function reset_search() {
+		var el = document.getElementsByTagName("rect");
+		for (var i=0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)", "");
+			if (term != null) {
+				search(term)
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			searchbtn.style["opacity"] = "0.1";
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.style["opacity"] = "0.0";
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		var re = new RegExp(term);
+		var el = document.getElementsByTagName("g");
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			if (e.attributes["class"].value != "func_g")
+				continue;
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (rect == null) {
+				// the rect might be wrapped in an anchor
+				// if nameattr href is being used
+				if (rect = find_child(e, "a")) {
+				    rect = find_child(r, "rect");
+				}
+			}
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes["width"].value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes["x"].value);
+				orig_save(rect, "fill");
+				rect.attributes["fill"].value =
+				    "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.style["opacity"] = "1.0";
+		searchbtn.firstChild.nodeValue = "Reset Search"
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.style["opacity"] = "1.0";
+		pct = 100 * count / maxwidth;
+		if (pct == 100)
+			pct = "100"
+		else
+			pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+	function searchover(e) {
+		searchbtn.style["opacity"] = "1.0";
+	}
+	function searchout(e) {
+		if (searching) {
+			searchbtn.style["opacity"] = "1.0";
+		} else {
+			searchbtn.style["opacity"] = "0.1";
+		}
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="252778.0" height="270.0" fill="url(#background)"  />
+<text text-anchor="middle" x="126389.00" y="24" font-size="17" font-family="Verdana" fill="rgb(0,0,0)"  >15.0-CURRENT boot</text>
+<text text-anchor="middle" x="126389.00" y="48" font-size="12" font-family="Verdana" fill="rgb(160,160,160)"  >5055574 ms</text>
+<text text-anchor="" x="10.00" y="253" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="details" > </text>
+<text text-anchor="" x="10.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="unzoom" onclick="unzoom()" style="opacity:0.0;cursor:pointer" >Reset Zoom</text>
+<text text-anchor="" x="252668.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="search" onmouseover="searchover()" onmouseout="searchout()" onclick="search_prompt()" style="opacity:0.1;cursor:pointer" >Search</text>
+<text text-anchor="" x="252668.00" y="253" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="matched" > </text>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>220 /etc/rc.d/netif (12,711,208 samples, 0.00%)</title><rect x="251910.9" y="157" width="0.2" height="15.0" fill="rgb(239,199,37)" rx="2" ry="2" />
+<text text-anchor="" x="251913.86" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>85 /bin/mkdir (12,519,926 samples, 0.00%)</title><rect x="251865.8" y="157" width="0.2" height="15.0" fill="rgb(238,110,37)" rx="2" ry="2" />
+<text text-anchor="" x="251868.78" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>open (14,866,320 samples, 0.00%)</title><rect x="250977.8" y="189" width="0.3" height="15.0" fill="rgb(250,195,49)" rx="2" ry="2" />
+<text text-anchor="" x="250980.75" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>527 /sbin/route (9,319,342 samples, 0.00%)</title><rect x="252713.9" y="157" width="0.2" height="15.0" fill="rgb(240,153,38)" rx="2" ry="2" />
+<text text-anchor="" x="252716.93" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>612 find (6,662,155 samples, 0.00%)</title><rect x="252732.0" y="157" width="0.2" height="15.0" fill="rgb(248,166,48)" rx="2" ry="2" />
+<text text-anchor="" x="252735.04" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>416 /usr/sbin/automount (7,491,614 samples, 0.00%)</title><rect x="252696.9" y="141" width="0.1" height="15.0" fill="rgb(238,169,36)" rx="2" ry="2" />
+<text text-anchor="" x="252699.88" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>428 /usr/sbin/automount (7,356,216 samples, 0.00%)</title><rect x="252698.6" y="141" width="0.2" height="15.0" fill="rgb(238,158,36)" rx="2" ry="2" />
+<text text-anchor="" x="252701.63" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kvprintf (10,019,816 samples, 0.00%)</title><rect x="251122.4" y="125" width="0.2" height="15.0" fill="rgb(81,228,81)" rx="2" ry="2" />
+<text text-anchor="" x="251125.39" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>twiddle (5,222,712 samples, 0.00%)</title><rect x="250979.7" y="125" width="0.1" height="15.0" fill="rgb(240,107,39)" rx="2" ry="2" />
+<text text-anchor="" x="250982.67" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>799 /etc/rc.d/sysctl (13,214,283 samples, 0.00%)</title><rect x="252753.1" y="141" width="0.3" height="15.0" fill="rgb(232,150,30)" rx="2" ry="2" />
+<text text-anchor="" x="252756.11" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>176 dd (6,957,568 samples, 0.00%)</title><rect x="251888.2" y="157" width="0.2" height="15.0" fill="rgb(248,138,47)" rx="2" ry="2" />
+<text text-anchor="" x="251891.23" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>35 /etc/rc.d/hostid (37,942,766 samples, 0.00%)</title><rect x="251854.4" y="157" width="0.8" height="15.0" fill="rgb(242,150,41)" rx="2" ry="2" />
+<text text-anchor="" x="251857.43" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>21 /sbin/sysctl (5,104,030 samples, 0.00%)</title><rect x="251839.4" y="173" width="0.1" height="15.0" fill="rgb(232,179,30)" rx="2" ry="2" />
+<text text-anchor="" x="251842.44" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>74 mkdir (18,633,686 samples, 0.00%)</title><rect x="251864.4" y="157" width="0.4" height="15.0" fill="rgb(238,123,37)" rx="2" ry="2" />
+<text text-anchor="" x="251867.42" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>34 /etc/rc.d/hostid (54,074,106 samples, 0.00%)</title><rect x="251854.3" y="173" width="1.0" height="15.0" fill="rgb(242,155,41)" rx="2" ry="2" />
+<text text-anchor="" x="251857.25" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>808 /etc/rc.d/sshd (6,483,978 samples, 0.00%)</title><rect x="252753.7" y="157" width="0.1" height="15.0" fill="rgb(244,136,43)" rx="2" ry="2" />
+<text text-anchor="" x="252756.67" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>700 cat (7,144,396 samples, 0.00%)</title><rect x="252741.4" y="157" width="0.1" height="15.0" fill="rgb(232,169,30)" rx="2" ry="2" />
+<text text-anchor="" x="252744.39" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (117,394,620 samples, 0.00%)</title><rect x="251182.0" y="141" width="2.3" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251184.98" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (84,591,480 samples, 0.00%)</title><rect x="251220.0" y="125" width="1.7" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251223.00" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>interact (7,195,955,900 samples, 0.06%)</title><rect x="250978.5" y="189" width="144.1" height="15.0" fill="rgb(243,164,42)" rx="2" ry="2" />
+<text text-anchor="" x="250981.47" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >interact</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kva_alloc (31,212,486 samples, 0.00%)</title><rect x="251180.7" y="141" width="0.6" height="15.0" fill="rgb(238,130,36)" rx="2" ry="2" />
+<text text-anchor="" x="251183.72" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>178 dd (7,471,798 samples, 0.00%)</title><rect x="251888.4" y="157" width="0.2" height="15.0" fill="rgb(248,132,47)" rx="2" ry="2" />
+<text text-anchor="" x="251891.43" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>file_loadraw /boot/entropy (12,748,342 samples, 0.00%)</title><rect x="251122.3" y="141" width="0.3" height="15.0" fill="rgb(248,183,48)" rx="2" ry="2" />
+<text text-anchor="" x="251125.34" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kvprintf (8,307,958 samples, 0.00%)</title><rect x="250978.6" y="141" width="0.2" height="15.0" fill="rgb(81,228,81)" rx="2" ry="2" />
+<text text-anchor="" x="250981.64" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (83,643,188 samples, 0.00%)</title><rect x="251226.7" y="109" width="1.7" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251229.73" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT announce (26,896,076 samples, 0.00%)</title><rect x="251158.8" y="173" width="0.5" height="15.0" fill="rgb(251,165,51)" rx="2" ry="2" />
+<text text-anchor="" x="251161.78" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>28 /etc/rc.d/dumpon (174,255,033 samples, 0.00%)</title><rect x="251850.7" y="173" width="3.5" height="15.0" fill="rgb(251,199,50)" rx="2" ry="2" />
+<text text-anchor="" x="251853.73" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>start_init (10,351,811,217 samples, 0.08%)</title><rect x="251630.2" y="189" width="207.3" height="15.0" fill="rgb(236,156,34)" rx="2" ry="2" />
+<text text-anchor="" x="251633.20" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >start_init</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>interp_init (7,195,950,466 samples, 0.06%)</title><rect x="250978.5" y="173" width="144.1" height="15.0" fill="rgb(236,164,34)" rx="2" ry="2" />
+<text text-anchor="" x="250981.47" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >interp_init</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>235 /etc/rc.d/netif (10,552,470 samples, 0.00%)</title><rect x="251911.9" y="157" width="0.2" height="15.0" fill="rgb(239,178,37)" rx="2" ry="2" />
+<text text-anchor="" x="251914.89" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH psm (307,180,863 samples, 0.00%)</title><rect x="251464.1" y="109" width="6.1" height="15.0" fill="rgb(231,144,28)" rx="2" ry="2" />
+<text text-anchor="" x="251467.09" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>80 df (8,860,916 samples, 0.00%)</title><rect x="251865.5" y="157" width="0.2" height="15.0" fill="rgb(244,136,43)" rx="2" ry="2" />
+<text text-anchor="" x="251868.50" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>47 /sbin/swapon (8,061,990 samples, 0.00%)</title><rect x="251855.6" y="157" width="0.2" height="15.0" fill="rgb(251,188,50)" rx="2" ry="2" />
+<text text-anchor="" x="251858.59" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (82,444,546 samples, 0.00%)</title><rect x="251228.4" y="109" width="1.7" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251231.40" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_sleep (5,093,486 samples, 0.00%)</title><rect x="251836.0" y="141" width="0.1" height="15.0" fill="rgb(122,122,240)" rx="2" ry="2" />
+<text text-anchor="" x="251839.00" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (526,542,070 samples, 0.00%)</title><rect x="251470.4" y="157" width="10.5" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251473.36" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (26,895,724 samples, 0.00%)</title><rect x="251158.8" y="157" width="0.5" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251161.78" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>389 devmatch (6,059,567 samples, 0.00%)</title><rect x="252692.8" y="109" width="0.1" height="15.0" fill="rgb(242,188,41)" rx="2" ry="2" />
+<text text-anchor="" x="252695.76" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>183 chmod (6,140,094 samples, 0.00%)</title><rect x="251889.0" y="157" width="0.1" height="15.0" fill="rgb(253,143,53)" rx="2" ry="2" />
+<text text-anchor="" x="251892.02" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>685 /sbin/devfs (7,751,004 samples, 0.00%)</title><rect x="252740.1" y="157" width="0.2" height="15.0" fill="rgb(236,176,34)" rx="2" ry="2" />
+<text text-anchor="" x="252743.12" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>257 /sbin/ifconfig (11,357,950 samples, 0.00%)</title><rect x="251913.4" y="157" width="0.2" height="15.0" fill="rgb(239,162,37)" rx="2" ry="2" />
+<text text-anchor="" x="251916.41" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kvprintf (6,257,362 samples, 0.00%)</title><rect x="250976.7" y="173" width="0.1" height="15.0" fill="rgb(81,228,81)" rx="2" ry="2" />
+<text text-anchor="" x="250979.71" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>325 /etc/rc.d/devd (1,847,739,741 samples, 0.01%)</title><rect x="252676.6" y="173" width="37.0" height="15.0" fill="rgb(242,175,41)" rx="2" ry="2" />
+<text text-anchor="" x="252679.61" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >325..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>341 /usr/libexec/hyperv/hyperv_vfattach (30,201,990 samples, 0.00%)</title><rect x="252679.9" y="141" width="0.6" height="15.0" fill="rgb(247,178,46)" rx="2" ry="2" />
+<text text-anchor="" x="252682.90" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>549 /sbin/route (104,678,486 samples, 0.00%)</title><rect x="252720.0" y="157" width="2.0" height="15.0" fill="rgb(240,136,38)" rx="2" ry="2" />
+<text text-anchor="" x="252722.95" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>432 /usr/sbin/automount (11,566,491 samples, 0.00%)</title><rect x="252699.4" y="141" width="0.2" height="15.0" fill="rgb(238,172,36)" rx="2" ry="2" />
+<text text-anchor="" x="252702.37" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>533 xargs (22,003,837 samples, 0.00%)</title><rect x="252717.2" y="141" width="0.4" height="15.0" fill="rgb(237,161,35)" rx="2" ry="2" />
+<text text-anchor="" x="252720.17" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (111,610,718 samples, 0.00%)</title><rect x="251199.4" y="157" width="2.2" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251202.35" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH ohci (752,215,475 samples, 0.01%)</title><rect x="251365.2" y="93" width="15.0" height="15.0" fill="rgb(240,144,39)" rx="2" ry="2" />
+<text text-anchor="" x="251368.17" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>153 /usr/sbin/ip6addrctl (5,742,515 samples, 0.00%)</title><rect x="251886.3" y="157" width="0.1" height="15.0" fill="rgb(232,102,30)" rx="2" ry="2" />
+<text text-anchor="" x="251889.27" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>interp_builtin_cmd echo (8,344,612 samples, 0.00%)</title><rect x="250978.6" y="157" width="0.2" height="15.0" fill="rgb(245,164,44)" rx="2" ry="2" />
+<text text-anchor="" x="250981.64" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>221 /etc/rc.d/netif (10,010,760 samples, 0.00%)</title><rect x="251910.9" y="141" width="0.2" height="15.0" fill="rgb(239,196,37)" rx="2" ry="2" />
+<text text-anchor="" x="251913.90" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>51 /etc/rc.d/fsck (192,005,944 samples, 0.00%)</title><rect x="251855.9" y="173" width="3.8" height="15.0" fill="rgb(237,155,36)" rx="2" ry="2" />
+<text text-anchor="" x="251858.85" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>247 /etc/rc.d/netif (9,243,582 samples, 0.00%)</title><rect x="251913.0" y="157" width="0.2" height="15.0" fill="rgb(239,167,37)" rx="2" ry="2" />
+<text text-anchor="" x="251915.97" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT stack_chk (111,651,390 samples, 0.00%)</title><rect x="251199.4" y="173" width="2.2" height="15.0" fill="rgb(235,165,33)" rx="2" ry="2" />
+<text text-anchor="" x="251202.35" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>297 /etc/rc.d/netif (7,400,981 samples, 0.00%)</title><rect x="252565.5" y="157" width="0.2" height="15.0" fill="rgb(239,197,37)" rx="2" ry="2" />
+<text text-anchor="" x="252568.52" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>407 /etc/rc.d/power_profile (34,135,928 samples, 0.00%)</title><rect x="252695.6" y="125" width="0.7" height="15.0" fill="rgb(237,171,35)" rx="2" ry="2" />
+<text text-anchor="" x="252698.60" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>read (21,108,250 samples, 0.00%)</title><rect x="250976.8" y="189" width="0.5" height="15.0" fill="rgb(241,184,40)" rx="2" ry="2" />
+<text text-anchor="" x="250979.84" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>701 install (5,646,775 samples, 0.00%)</title><rect x="252741.5" y="157" width="0.2" height="15.0" fill="rgb(230,166,28)" rx="2" ry="2" />
+<text text-anchor="" x="252744.54" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>66 /etc/rc.d/hostid_save (9,655,742 samples, 0.00%)</title><rect x="251863.1" y="173" width="0.2" height="15.0" fill="rgb(243,121,42)" rx="2" ry="2" />
+<text text-anchor="" x="251866.15" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>437 kenv (5,988,118 samples, 0.00%)</title><rect x="252701.2" y="125" width="0.1" height="15.0" fill="rgb(237,156,35)" rx="2" ry="2" />
+<text text-anchor="" x="252704.19" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>567 /etc/rc.d/defaultroute (18,080,034 samples, 0.00%)</title><rect x="252725.8" y="157" width="0.4" height="15.0" fill="rgb(240,133,38)" rx="2" ry="2" />
+<text text-anchor="" x="252728.80" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>84 /etc/rc.d/var (72,113,796 samples, 0.00%)</title><rect x="251865.8" y="173" width="1.4" height="15.0" fill="rgb(231,115,28)" rx="2" ry="2" />
+<text text-anchor="" x="251868.78" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>137 /libexec/ld-elf32.so.1 (13,677,368 samples, 0.00%)</title><rect x="251881.1" y="141" width="0.2" height="15.0" fill="rgb(235,100,33)" rx="2" ry="2" />
+<text text-anchor="" x="251884.06" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>155 /etc/rc.d/netoptions (49,256,720 samples, 0.00%)</title><rect x="251886.4" y="173" width="1.0" height="15.0" fill="rgb(244,96,43)" rx="2" ry="2" />
+<text text-anchor="" x="251889.42" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>397 /etc/rc.d/power_profile (107,847,894 samples, 0.00%)</title><rect x="252694.3" y="141" width="2.2" height="15.0" fill="rgb(237,189,35)" rx="2" ry="2" />
+<text text-anchor="" x="252697.31" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>112 /etc/rc.d/hostname (26,322,086 samples, 0.00%)</title><rect x="251874.6" y="173" width="0.5" height="15.0" fill="rgb(241,126,40)" rx="2" ry="2" />
+<text text-anchor="" x="251877.62" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>790 /etc/rc.d/bthidd (11,146,748 samples, 0.00%)</title><rect x="252751.8" y="173" width="0.2" height="15.0" fill="rgb(247,179,46)" rx="2" ry="2" />
+<text text-anchor="" x="252754.77" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>769 /etc/rc.d/mountlate (17,176,084 samples, 0.00%)</title><rect x="252750.5" y="173" width="0.3" height="15.0" fill="rgb(245,110,45)" rx="2" ry="2" />
+<text text-anchor="" x="252753.50" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>430 /usr/sbin/automount (8,908,412 samples, 0.00%)</title><rect x="252699.0" y="141" width="0.2" height="15.0" fill="rgb(238,178,36)" rx="2" ry="2" />
+<text text-anchor="" x="252702.00" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH em (1,842,976,112 samples, 0.01%)</title><rect x="251260.1" y="93" width="36.9" height="15.0" fill="rgb(231,144,29)" rx="2" ry="2" />
+<text text-anchor="" x="251263.10" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DEV..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>399 /sbin/sysctl (5,863,921 samples, 0.00%)</title><rect x="252694.4" y="125" width="0.1" height="15.0" fill="rgb(232,182,30)" rx="2" ry="2" />
+<text text-anchor="" x="252697.38" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>786 /etc/rc.d/swaplate (7,368,770 samples, 0.00%)</title><rect x="252751.5" y="173" width="0.2" height="15.0" fill="rgb(245,165,45)" rx="2" ry="2" />
+<text text-anchor="" x="252754.54" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>370 kenv (5,256,401 samples, 0.00%)</title><rect x="252690.1" y="125" width="0.1" height="15.0" fill="rgb(237,221,35)" rx="2" ry="2" />
+<text text-anchor="" x="252693.11" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>600 /sbin/dmesg (12,655,679 samples, 0.00%)</title><rect x="252727.5" y="157" width="0.3" height="15.0" fill="rgb(240,177,39)" rx="2" ry="2" />
+<text text-anchor="" x="252730.51" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>381 devmatch (9,262,988 samples, 0.00%)</title><rect x="252691.4" y="109" width="0.2" height="15.0" fill="rgb(242,213,41)" rx="2" ry="2" />
+<text text-anchor="" x="252694.44" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>835 date (6,519,534 samples, 0.00%)</title><rect x="252767.9" y="173" width="0.1" height="15.0" fill="rgb(245,130,45)" rx="2" ry="2" />
+<text text-anchor="" x="252770.87" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>305 sleep (2,604,778,832 samples, 0.02%)</title><rect x="252565.9" y="157" width="52.1" height="15.0" fill="rgb(128,128,245)" rx="2" ry="2" />
+<text text-anchor="" x="252568.86" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >305 s..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT clocks (5,746,986,318 samples, 0.05%)</title><rect x="251491.2" y="173" width="115.1" height="15.0" fill="rgb(235,165,33)" rx="2" ry="2" />
+<text text-anchor="" x="251494.22" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >SYSINIT clocks</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_PROBE psm (2,372,280,304 samples, 0.02%)</title><rect x="251414.5" y="109" width="47.5" height="15.0" fill="rgb(231,144,28)" rx="2" ry="2" />
+<text text-anchor="" x="251417.49" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DEVI..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>132 cat (14,682,958 samples, 0.00%)</title><rect x="251879.5" y="125" width="0.3" height="15.0" fill="rgb(232,116,30)" rx="2" ry="2" />
+<text text-anchor="" x="251882.48" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>27 /sbin/sysctl (6,171,450 samples, 0.00%)</title><rect x="251850.6" y="157" width="0.1" height="15.0" fill="rgb(232,204,30)" rx="2" ry="2" />
+<text text-anchor="" x="251853.61" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT version (35,312,444 samples, 0.00%)</title><rect x="251159.5" y="173" width="0.7" height="15.0" fill="rgb(247,165,46)" rx="2" ry="2" />
+<text text-anchor="" x="251162.51" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>345 kenv (5,553,292 samples, 0.00%)</title><rect x="252680.5" y="125" width="0.1" height="15.0" fill="rgb(237,165,35)" rx="2" ry="2" />
+<text text-anchor="" x="252683.51" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (35,310,832 samples, 0.00%)</title><rect x="251159.5" y="157" width="0.7" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251162.51" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>twiddle (5,437,270 samples, 0.00%)</title><rect x="250978.8" y="141" width="0.1" height="15.0" fill="rgb(240,107,39)" rx="2" ry="2" />
+<text text-anchor="" x="250981.82" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>523 /etc/rc.d/routing (5,907,542 samples, 0.00%)</title><rect x="252713.7" y="157" width="0.1" height="15.0" fill="rgb(243,166,42)" rx="2" ry="2" />
+<text text-anchor="" x="252716.69" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>282 /sbin/rtsol (13,574,424 samples, 0.00%)</title><rect x="251993.1" y="109" width="0.3" height="15.0" fill="rgb(235,218,33)" rx="2" ry="2" />
+<text text-anchor="" x="251996.12" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>421 /usr/sbin/automount (7,435,252 samples, 0.00%)</title><rect x="252697.6" y="141" width="0.2" height="15.0" fill="rgb(238,180,36)" rx="2" ry="2" />
+<text text-anchor="" x="252700.62" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>246 /sbin/ifconfig (15,469,878 samples, 0.00%)</title><rect x="251912.7" y="157" width="0.3" height="15.0" fill="rgb(239,170,37)" rx="2" ry="2" />
+<text text-anchor="" x="251915.66" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>725 /etc/rc.d/savecore (124,237,302 samples, 0.00%)</title><rect x="252746.3" y="173" width="2.4" height="15.0" fill="rgb(246,143,45)" rx="2" ry="2" />
+<text text-anchor="" x="252749.26" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>755 /etc/rc.d/nscd (40,580,228 samples, 0.00%)</title><rect x="252749.4" y="173" width="0.8" height="15.0" fill="rgb(250,128,49)" rx="2" ry="2" />
+<text text-anchor="" x="252752.39" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>hammer_time (1,805,577,620 samples, 0.01%)</title><rect x="251122.6" y="189" width="36.2" height="15.0" fill="rgb(236,149,34)" rx="2" ry="2" />
+<text text-anchor="" x="251125.59" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >ham..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>71 /etc/rc.d/tmp (39,378,097 samples, 0.00%)</title><rect x="251863.5" y="157" width="0.8" height="15.0" fill="rgb(234,139,32)" rx="2" ry="2" />
+<text text-anchor="" x="251866.53" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>696 /etc/rc.d/motd (40,983,924 samples, 0.00%)</title><rect x="252740.9" y="173" width="0.8" height="15.0" fill="rgb(246,168,45)" rx="2" ry="2" />
+<text text-anchor="" x="252743.91" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>interp_builtin_cmd load (675,118,350 samples, 0.01%)</title><rect x="251109.1" y="157" width="13.5" height="15.0" fill="rgb(243,164,41)" rx="2" ry="2" />
+<text text-anchor="" x="251112.07" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>805 /etc/rc.d/sshd (8,311,406 samples, 0.00%)</title><rect x="252753.5" y="157" width="0.2" height="15.0" fill="rgb(244,145,43)" rx="2" ry="2" />
+<text text-anchor="" x="252756.50" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH atapci (180,884,348 samples, 0.00%)</title><rect x="251254.7" y="93" width="3.7" height="15.0" fill="rgb(243,144,42)" rx="2" ry="2" />
+<text text-anchor="" x="251257.74" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>446 /sbin/dhclient (5,822,098 samples, 0.00%)</title><rect x="252701.8" y="109" width="0.1" height="15.0" fill="rgb(241,154,39)" rx="2" ry="2" />
+<text text-anchor="" x="252704.77" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>70 /etc/rc.d/tmp (70,490,856 samples, 0.00%)</title><rect x="251863.5" y="173" width="1.4" height="15.0" fill="rgb(234,144,32)" rx="2" ry="2" />
+<text text-anchor="" x="251866.53" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>555 /sbin/route (8,294,956 samples, 0.00%)</title><rect x="252722.6" y="157" width="0.1" height="15.0" fill="rgb(240,144,38)" rx="2" ry="2" />
+<text text-anchor="" x="252725.55" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (205,670,894 samples, 0.00%)</title><rect x="251292.9" y="77" width="4.1" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251295.89" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>530 grep (5,585,662 samples, 0.00%)</title><rect x="252716.7" y="157" width="0.1" height="15.0" fill="rgb(245,170,44)" rx="2" ry="2" />
+<text text-anchor="" x="252719.68" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>429 /usr/sbin/automount (10,757,210 samples, 0.00%)</title><rect x="252698.8" y="141" width="0.2" height="15.0" fill="rgb(238,154,36)" rx="2" ry="2" />
+<text text-anchor="" x="252701.78" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>106 find (55,424,886 samples, 0.00%)</title><rect x="251872.1" y="157" width="1.1" height="15.0" fill="rgb(248,118,48)" rx="2" ry="2" />
+<text text-anchor="" x="251875.10" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>543 /etc/rc.d/routing (6,232,760 samples, 0.00%)</title><rect x="252719.6" y="157" width="0.1" height="15.0" fill="rgb(243,155,42)" rx="2" ry="2" />
+<text text-anchor="" x="252722.56" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>64 /etc/rc.d/mdconfig (5,039,052 samples, 0.00%)</title><rect x="251863.0" y="141" width="0.1" height="15.0" fill="rgb(239,131,37)" rx="2" ry="2" />
+<text text-anchor="" x="251866.03" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>THREAD g_event (488,542,735 samples, 0.00%)</title><rect x="251630.2" y="141" width="9.8" height="15.0" fill="rgb(241,135,39)" rx="2" ry="2" />
+<text text-anchor="" x="251633.24" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>95 sed (16,119,397 samples, 0.00%)</title><rect x="251868.9" y="141" width="0.3" height="15.0" fill="rgb(247,102,47)" rx="2" ry="2" />
+<text text-anchor="" x="251871.90" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>796 /etc/rc.d/sysctl (64,473,494 samples, 0.00%)</title><rect x="252752.2" y="157" width="1.3" height="15.0" fill="rgb(232,160,30)" rx="2" ry="2" />
+<text text-anchor="" x="252755.16" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH atkbd (1,295,439,840 samples, 0.01%)</title><rect x="251388.5" y="109" width="26.0" height="15.0" fill="rgb(236,144,34)" rx="2" ry="2" />
+<text text-anchor="" x="251391.55" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >D..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>233 /sbin/ifconfig (15,847,468 samples, 0.00%)</title><rect x="251911.5" y="157" width="0.4" height="15.0" fill="rgb(239,185,37)" rx="2" ry="2" />
+<text text-anchor="" x="251914.54" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kernel (35,772,856,842 samples, 0.28%)</title><rect x="251122.6" y="205" width="716.5" height="15.0" fill="rgb(237,144,35)" rx="2" ry="2" />
+<text text-anchor="" x="251125.59" y="215.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >kernel</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH pci_link (5,668,740 samples, 0.00%)</title><rect x="251230.1" y="125" width="0.1" height="15.0" fill="rgb(236,144,34)" rx="2" ry="2" />
+<text text-anchor="" x="251233.07" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT sysctl (6,901,786 samples, 0.00%)</title><rect x="251160.5" y="173" width="0.2" height="15.0" fill="rgb(232,165,30)" rx="2" ry="2" />
+<text text-anchor="" x="251163.52" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>open (11,428,676 samples, 0.00%)</title><rect x="250979.6" y="141" width="0.3" height="15.0" fill="rgb(250,195,49)" rx="2" ry="2" />
+<text text-anchor="" x="250982.63" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_open (11,813,298 samples, 0.00%)</title><rect x="250977.8" y="173" width="0.2" height="15.0" fill="rgb(250,125,49)" rx="2" ry="2" />
+<text text-anchor="" x="250980.75" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>58 umount (6,683,182 samples, 0.00%)</title><rect x="251862.4" y="157" width="0.2" height="15.0" fill="rgb(238,175,36)" rx="2" ry="2" />
+<text text-anchor="" x="251865.44" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (342,331,908 samples, 0.00%)</title><rect x="251213.0" y="141" width="6.9" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251216.00" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>93 /etc/rc.d/devmatch (25,537,494 samples, 0.00%)</title><rect x="251868.7" y="157" width="0.5" height="15.0" fill="rgb(242,112,41)" rx="2" ry="2" />
+<text text-anchor="" x="251871.71" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>372 /etc/rc.d/devmatch (8,988,312 samples, 0.00%)</title><rect x="252690.3" y="125" width="0.2" height="15.0" fill="rgb(242,215,41)" rx="2" ry="2" />
+<text text-anchor="" x="252693.29" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>596 /sbin/mount (5,180,494 samples, 0.00%)</title><rect x="252727.1" y="157" width="0.1" height="15.0" fill="rgb(238,176,36)" rx="2" ry="2" />
+<text text-anchor="" x="252730.14" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>292 /etc/rc.d/netif (5,375,936 samples, 0.00%)</title><rect x="252565.3" y="141" width="0.1" height="15.0" fill="rgb(239,213,37)" rx="2" ry="2" />
+<text text-anchor="" x="252568.32" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>239 /etc/rc.d/netif (6,971,794 samples, 0.00%)</title><rect x="251912.1" y="141" width="0.2" height="15.0" fill="rgb(239,165,37)" rx="2" ry="2" />
+<text text-anchor="" x="251915.15" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>72 dd (33,021,818 samples, 0.00%)</title><rect x="251863.5" y="141" width="0.7" height="15.0" fill="rgb(248,133,47)" rx="2" ry="2" />
+<text text-anchor="" x="251866.53" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>551 /sbin/route (13,691,646 samples, 0.00%)</title><rect x="252722.1" y="157" width="0.3" height="15.0" fill="rgb(240,157,38)" rx="2" ry="2" />
+<text text-anchor="" x="252725.11" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH pcm (1,619,108,781 samples, 0.01%)</title><rect x="251332.7" y="93" width="32.5" height="15.0" fill="rgb(236,144,34)" rx="2" ry="2" />
+<text text-anchor="" x="251335.75" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DE..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>266 /etc/rc.d/netif (8,126,472 samples, 0.00%)</title><rect x="251914.2" y="157" width="0.1" height="15.0" fill="rgb(239,160,37)" rx="2" ry="2" />
+<text text-anchor="" x="251917.16" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>444 install (12,361,450 samples, 0.00%)</title><rect x="252701.5" y="125" width="0.3" height="15.0" fill="rgb(230,160,28)" rx="2" ry="2" />
+<text text-anchor="" x="252704.52" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>391 /etc/pccard_ether (70,424,374 samples, 0.00%)</title><rect x="252692.9" y="141" width="1.4" height="15.0" fill="rgb(240,208,38)" rx="2" ry="2" />
+<text text-anchor="" x="252695.90" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>426 /usr/sbin/automount (6,926,316 samples, 0.00%)</title><rect x="252698.3" y="141" width="0.2" height="15.0" fill="rgb(238,164,36)" rx="2" ry="2" />
+<text text-anchor="" x="252701.34" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT cpu (1,056,488,980 samples, 0.01%)</title><rect x="251160.8" y="173" width="21.2" height="15.0" fill="rgb(238,165,36)" rx="2" ry="2" />
+<text text-anchor="" x="251163.82" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT callwheel_init (6,147,024 samples, 0.00%)</title><rect x="251194.4" y="173" width="0.1" height="15.0" fill="rgb(236,165,34)" rx="2" ry="2" />
+<text text-anchor="" x="251197.38" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>101 /etc/rc.d/localpkg (32,026,709 samples, 0.00%)</title><rect x="251871.1" y="173" width="0.6" height="15.0" fill="rgb(238,134,36)" rx="2" ry="2" />
+<text text-anchor="" x="251874.09" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>209 /etc/rc.d/netif (29,071,442 samples, 0.00%)</title><rect x="251910.0" y="157" width="0.6" height="15.0" fill="rgb(239,180,37)" rx="2" ry="2" />
+<text text-anchor="" x="251912.98" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>VFS_MOUNT ufs (8,154,512 samples, 0.00%)</title><rect x="251835.9" y="157" width="0.2" height="15.0" fill="rgb(236,126,34)" rx="2" ry="2" />
+<text text-anchor="" x="251838.94" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>172 dd (7,350,442 samples, 0.00%)</title><rect x="251887.8" y="157" width="0.1" height="15.0" fill="rgb(248,151,47)" rx="2" ry="2" />
+<text text-anchor="" x="251890.78" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT configure2 (13,832,905,754 samples, 0.11%)</title><rect x="251213.0" y="173" width="277.0" height="15.0" fill="rgb(248,165,47)" rx="2" ry="2" />
+<text text-anchor="" x="251216.00" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >SYSINIT configure2</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>274 /sbin/ifconfig (3,501,859,900 samples, 0.03%)</title><rect x="251914.5" y="157" width="70.1" height="15.0" fill="rgb(239,217,37)" rx="2" ry="2" />
+<text text-anchor="" x="251917.47" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >274 /sb..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>258 /sbin/ifconfig (11,254,672 samples, 0.00%)</title><rect x="251913.6" y="157" width="0.3" height="15.0" fill="rgb(239,158,37)" rx="2" ry="2" />
+<text text-anchor="" x="251916.64" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>68 /etc/rc.d/mountcritlocal (9,599,120 samples, 0.00%)</title><rect x="251863.3" y="173" width="0.2" height="15.0" fill="rgb(229,167,26)" rx="2" ry="2" />
+<text text-anchor="" x="251866.34" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_io (7,097,850 samples, 0.00%)</title><rect x="250978.5" y="141" width="0.1" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="250981.47" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (682,107,973 samples, 0.01%)</title><rect x="251237.7" y="125" width="13.7" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251240.74" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>540 /sbin/sysctl (10,872,356 samples, 0.00%)</title><rect x="252719.2" y="157" width="0.2" height="15.0" fill="rgb(232,165,30)" rx="2" ry="2" />
+<text text-anchor="" x="252722.18" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>402 logger (11,858,814 samples, 0.00%)</title><rect x="252695.3" y="125" width="0.2" height="15.0" fill="rgb(240,187,39)" rx="2" ry="2" />
+<text text-anchor="" x="252698.28" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>117 /usr/local/etc/rc.d/vboxguest (90,716,530 samples, 0.00%)</title><rect x="251875.2" y="173" width="1.8" height="15.0" fill="rgb(235,110,33)" rx="2" ry="2" />
+<text text-anchor="" x="251878.18" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>703 /etc/rc.d/os-release (36,332,166 samples, 0.00%)</title><rect x="252741.7" y="173" width="0.8" height="15.0" fill="rgb(247,160,46)" rx="2" ry="2" />
+<text text-anchor="" x="252744.73" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>814 /etc/rc.d/sshd (6,013,576 samples, 0.00%)</title><rect x="252753.9" y="157" width="0.1" height="15.0" fill="rgb(244,143,43)" rx="2" ry="2" />
+<text text-anchor="" x="252756.92" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (9,595,756 samples, 0.00%)</title><rect x="251160.2" y="157" width="0.2" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251163.21" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>105 rm (18,574,786 samples, 0.00%)</title><rect x="251871.7" y="157" width="0.4" height="15.0" fill="rgb(229,121,26)" rx="2" ry="2" />
+<text text-anchor="" x="251874.73" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>182 chflags (6,333,534 samples, 0.00%)</title><rect x="251888.9" y="141" width="0.1" height="15.0" fill="rgb(241,146,39)" rx="2" ry="2" />
+<text text-anchor="" x="251891.90" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT ufsmodule (7,363,606 samples, 0.00%)</title><rect x="251491.1" y="173" width="0.1" height="15.0" fill="rgb(237,165,35)" rx="2" ry="2" />
+<text text-anchor="" x="251494.06" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>31 /sbin/dumpon (151,600,065 samples, 0.00%)</title><rect x="251851.1" y="157" width="3.0" height="15.0" fill="rgb(251,171,50)" rx="2" ry="2" />
+<text text-anchor="" x="251854.07" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>87 /etc/rc.d/devmatch (191,189,008 samples, 0.00%)</title><rect x="251867.2" y="173" width="3.9" height="15.0" fill="rgb(242,156,41)" rx="2" ry="2" />
+<text text-anchor="" x="251870.22" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>62 /etc/rc.d/mdconfig (10,928,188 samples, 0.00%)</title><rect x="251862.9" y="173" width="0.2" height="15.0" fill="rgb(239,141,37)" rx="2" ry="2" />
+<text text-anchor="" x="251865.93" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>226 /etc/rc.d/netif (7,355,434 samples, 0.00%)</title><rect x="251911.2" y="141" width="0.1" height="15.0" fill="rgb(239,180,37)" rx="2" ry="2" />
+<text text-anchor="" x="251914.17" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>532 rcorder (19,111,220 samples, 0.00%)</title><rect x="252716.8" y="141" width="0.4" height="15.0" fill="rgb(243,164,41)" rx="2" ry="2" />
+<text text-anchor="" x="252719.79" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (241,307,262 samples, 0.00%)</title><rect x="251194.5" y="157" width="4.8" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251197.51" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>326 /sbin/devd (1,841,386,042 samples, 0.01%)</title><rect x="252676.7" y="157" width="36.9" height="15.0" fill="rgb(242,172,41)" rx="2" ry="2" />
+<text text-anchor="" x="252679.73" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >326..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>60 rm (7,995,748 samples, 0.00%)</title><rect x="251862.7" y="141" width="0.2" height="15.0" fill="rgb(229,152,26)" rx="2" ry="2" />
+<text text-anchor="" x="251865.74" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>383 /etc/rc.d/devmatch (62,910,542 samples, 0.00%)</title><rect x="252691.6" y="141" width="1.3" height="15.0" fill="rgb(242,207,41)" rx="2" ry="2" />
+<text text-anchor="" x="252694.64" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_init (6,282,246 samples, 0.00%)</title><rect x="250976.7" y="189" width="0.1" height="15.0" fill="rgb(236,125,34)" rx="2" ry="2" />
+<text text-anchor="" x="250979.71" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>568 route (15,485,094 samples, 0.00%)</title><rect x="252725.9" y="141" width="0.3" height="15.0" fill="rgb(240,129,38)" rx="2" ry="2" />
+<text text-anchor="" x="252728.85" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH attimer (149,694,768 samples, 0.00%)</title><rect x="251222.1" y="125" width="3.0" height="15.0" fill="rgb(245,144,44)" rx="2" ry="2" />
+<text text-anchor="" x="251225.10" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_sleep (14,019,842 samples, 0.00%)</title><rect x="251837.2" y="173" width="0.3" height="15.0" fill="rgb(122,122,240)" rx="2" ry="2" />
+<text text-anchor="" x="251840.24" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>821 /etc/rc.d/cron (23,858,244 samples, 0.00%)</title><rect x="252765.5" y="173" width="0.4" height="15.0" fill="rgb(249,148,49)" rx="2" ry="2" />
+<text text-anchor="" x="252768.45" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>804 /etc/rc.d/sshd (594,947,530 samples, 0.00%)</title><rect x="252753.5" y="173" width="11.9" height="15.0" fill="rgb(244,148,43)" rx="2" ry="2" />
+<text text-anchor="" x="252756.50" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>18 /etc/rc (46,382,438,692 samples, 0.37%)</title><rect x="251839.1" y="189" width="928.9" height="15.0" fill="rgb(227,127,24)" rx="2" ry="2" />
+<text text-anchor="" x="251842.05" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >18 /etc/rc</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>150 /etc/rc.d/ip6addrctl (5,071,628 samples, 0.00%)</title><rect x="251885.8" y="157" width="0.1" height="15.0" fill="rgb(232,112,30)" rx="2" ry="2" />
+<text text-anchor="" x="251888.78" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>717 /etc/rc.d/syslogd (10,025,272 samples, 0.00%)</title><rect x="252745.8" y="157" width="0.2" height="15.0" fill="rgb(248,142,47)" rx="2" ry="2" />
+<text text-anchor="" x="252748.78" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>keg_alloc_slab (33,693,530 samples, 0.00%)</title><rect x="251490.1" y="157" width="0.6" height="15.0" fill="rgb(231,141,28)" rx="2" ry="2" />
+<text text-anchor="" x="251493.06" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>THREAD usbus1 (9,677,183,026 samples, 0.08%)</title><rect x="251640.0" y="141" width="193.8" height="15.0" fill="rgb(227,135,24)" rx="2" ry="2" />
+<text text-anchor="" x="251643.03" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >THREAD usbus1</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>144 /etc/rc.d/mixer (119,457,090 samples, 0.00%)</title><rect x="251883.3" y="173" width="2.4" height="15.0" fill="rgb(245,104,44)" rx="2" ry="2" />
+<text text-anchor="" x="251886.31" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>396 ifconfig (20,182,382 samples, 0.00%)</title><rect x="252693.9" y="125" width="0.4" height="15.0" fill="rgb(239,192,37)" rx="2" ry="2" />
+<text text-anchor="" x="252696.90" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>403 logger (5,754,132 samples, 0.00%)</title><rect x="252695.4" y="109" width="0.1" height="15.0" fill="rgb(240,184,39)" rx="2" ry="2" />
+<text text-anchor="" x="252698.40" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>281 /sbin/rtsol (15,010,424 samples, 0.00%)</title><rect x="251993.1" y="125" width="0.3" height="15.0" fill="rgb(235,221,33)" rx="2" ry="2" />
+<text text-anchor="" x="251996.09" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>134 /sbin/ldconfig (7,365,041 samples, 0.00%)</title><rect x="251880.6" y="157" width="0.1" height="15.0" fill="rgb(239,109,37)" rx="2" ry="2" />
+<text text-anchor="" x="251883.55" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>59 /sbin/nextboot (16,377,820 samples, 0.00%)</title><rect x="251862.6" y="157" width="0.3" height="15.0" fill="rgb(241,170,39)" rx="2" ry="2" />
+<text text-anchor="" x="251865.58" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>145 ls (8,760,274 samples, 0.00%)</title><rect x="251883.3" y="157" width="0.2" height="15.0" fill="rgb(230,101,28)" rx="2" ry="2" />
+<text text-anchor="" x="251886.31" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>69 mount (5,892,410 samples, 0.00%)</title><rect x="251863.3" y="157" width="0.2" height="15.0" fill="rgb(238,162,36)" rx="2" ry="2" />
+<text text-anchor="" x="251866.34" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>1 /sbin/init (46,382,438,693 samples, 0.37%)</title><rect x="251839.1" y="205" width="928.9" height="15.0" fill="rgb(236,72,34)" rx="2" ry="2" />
+<text text-anchor="" x="251842.05" y="215.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >1 /sbin/init</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>vfs_mountroot (10,331,881,014 samples, 0.08%)</title><rect x="251630.2" y="173" width="206.9" height="15.0" fill="rgb(241,128,39)" rx="2" ry="2" />
+<text text-anchor="" x="251633.20" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >vfs_mountroot</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>298 /etc/rc.d/netif (5,090,890 samples, 0.00%)</title><rect x="252565.5" y="141" width="0.1" height="15.0" fill="rgb(239,194,37)" rx="2" ry="2" />
+<text text-anchor="" x="252568.54" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DELAY (74,954,758 samples, 0.00%)</title><rect x="251382.5" y="77" width="1.5" height="15.0" fill="rgb(115,115,234)" rx="2" ry="2" />
+<text text-anchor="" x="251385.49" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>313 /bin/ps (31,498,054 samples, 0.00%)</title><rect x="252675.0" y="125" width="0.6" height="15.0" fill="rgb(236,187,34)" rx="2" ry="2" />
+<text text-anchor="" x="252678.01" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH pci (6,638,825,814 samples, 0.05%)</title><rect x="251253.2" y="109" width="133.0" height="15.0" fill="rgb(243,144,42)" rx="2" ry="2" />
+<text text-anchor="" x="251256.21" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DEVICE_ATTACH pci</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>53 fsck_ufs (46,357,476 samples, 0.00%)</title><rect x="251855.9" y="141" width="0.9" height="15.0" fill="rgb(236,144,34)" rx="2" ry="2" />
+<text text-anchor="" x="251858.91" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>350 devmatch (8,243,654 samples, 0.00%)</title><rect x="252681.4" y="109" width="0.1" height="15.0" fill="rgb(242,176,41)" rx="2" ry="2" />
+<text text-anchor="" x="252684.37" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>143 adjkerntz (6,331,058 samples, 0.00%)</title><rect x="251883.2" y="157" width="0.1" height="15.0" fill="rgb(243,107,42)" rx="2" ry="2" />
+<text text-anchor="" x="251886.19" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>797 kenv (5,174,425 samples, 0.00%)</title><rect x="252752.2" y="141" width="0.1" height="15.0" fill="rgb(237,157,35)" rx="2" ry="2" />
+<text text-anchor="" x="252755.16" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT acpi_taskq (518,017,960 samples, 0.00%)</title><rect x="251610.0" y="173" width="10.3" height="15.0" fill="rgb(236,165,34)" rx="2" ry="2" />
+<text text-anchor="" x="251612.97" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>167 /etc/rc.d/random (259,505,594 samples, 0.00%)</title><rect x="251887.4" y="173" width="5.2" height="15.0" fill="rgb(235,84,33)" rx="2" ry="2" />
+<text text-anchor="" x="251890.43" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>187 /etc/rc.d/random (5,281,116 samples, 0.00%)</title><rect x="251892.0" y="157" width="0.1" height="15.0" fill="rgb(235,130,33)" rx="2" ry="2" />
+<text text-anchor="" x="251895.01" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DELAY (1,076,289,258 samples, 0.01%)</title><rect x="251388.5" y="93" width="21.6" height="15.0" fill="rgb(115,115,234)" rx="2" ry="2" />
+<text text-anchor="" x="251391.55" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >D..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>file_loadraw /etc/hostid (15,260,008 samples, 0.00%)</title><rect x="251122.0" y="141" width="0.3" height="15.0" fill="rgb(242,183,41)" rx="2" ry="2" />
+<text text-anchor="" x="251125.03" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>run_interrupt_driven_config_hooks (109,299,755 samples, 0.00%)</title><rect x="251626.4" y="157" width="2.2" height="15.0" fill="rgb(235,156,33)" rx="2" ry="2" />
+<text text-anchor="" x="251629.39" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH nexus (12,844,174,891 samples, 0.10%)</title><rect x="251213.0" y="157" width="257.2" height="15.0" fill="rgb(238,144,36)" rx="2" ry="2" />
+<text text-anchor="" x="251216.00" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DEVICE_ATTACH nexus</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>open (51,989,218 samples, 0.00%)</title><rect x="250978.8" y="157" width="1.1" height="15.0" fill="rgb(250,195,49)" rx="2" ry="2" />
+<text text-anchor="" x="250981.82" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>547 /sbin/route (7,510,424 samples, 0.00%)</title><rect x="252719.8" y="157" width="0.1" height="15.0" fill="rgb(240,143,38)" rx="2" ry="2" />
+<text text-anchor="" x="252722.77" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>288 /etc/rc.d/netif (7,199,344 samples, 0.00%)</title><rect x="252565.1" y="157" width="0.2" height="15.0" fill="rgb(239,199,37)" rx="2" ry="2" />
+<text text-anchor="" x="252568.15" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>534 grep (20,569,782 samples, 0.00%)</title><rect x="252717.2" y="125" width="0.4" height="15.0" fill="rgb(245,157,44)" rx="2" ry="2" />
+<text text-anchor="" x="252720.17" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>352 /etc/rc.d/devmatch (81,038,440 samples, 0.00%)</title><rect x="252687.7" y="141" width="1.7" height="15.0" fill="rgb(242,170,41)" rx="2" ry="2" />
+<text text-anchor="" x="252690.75" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>602 /etc/rc.d/cleartmp (64,724,358 samples, 0.00%)</title><rect x="252727.8" y="173" width="1.3" height="15.0" fill="rgb(234,171,32)" rx="2" ry="2" />
+<text text-anchor="" x="252730.81" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>131 /etc/rc.d/ldconfig (17,852,366 samples, 0.00%)</title><rect x="251879.5" y="141" width="0.3" height="15.0" fill="rgb(239,119,37)" rx="2" ry="2" />
+<text text-anchor="" x="251882.48" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT start_aps (103,860,250 samples, 0.00%)</title><rect x="251206.6" y="173" width="2.1" height="15.0" fill="rgb(243,165,42)" rx="2" ry="2" />
+<text text-anchor="" x="251209.59" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>52 fsck (189,141,710 samples, 0.00%)</title><rect x="251855.9" y="157" width="3.8" height="15.0" fill="rgb(237,149,36)" rx="2" ry="2" />
+<text text-anchor="" x="251858.91" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>cons_probe (9,325,406 samples, 0.00%)</title><rect x="250976.5" y="189" width="0.2" height="15.0" fill="rgb(240,146,38)" rx="2" ry="2" />
+<text text-anchor="" x="250979.53" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>225 /etc/rc.d/netif (9,989,884 samples, 0.00%)</title><rect x="251911.2" y="157" width="0.2" height="15.0" fill="rgb(239,183,37)" rx="2" ry="2" />
+<text text-anchor="" x="251914.17" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>826 /etc/rc.d/bgfsck (74,839,786 samples, 0.00%)</title><rect x="252766.3" y="173" width="1.5" height="15.0" fill="rgb(237,132,36)" rx="2" ry="2" />
+<text text-anchor="" x="252769.28" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>358 devmatch (7,548,354 samples, 0.00%)</title><rect x="252688.8" y="109" width="0.1" height="15.0" fill="rgb(242,150,41)" rx="2" ry="2" />
+<text text-anchor="" x="252691.76" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>278 /sbin/ifconfig (9,561,674 samples, 0.00%)</title><rect x="251992.9" y="157" width="0.2" height="15.0" fill="rgb(239,204,37)" rx="2" ry="2" />
+<text text-anchor="" x="251995.88" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>800 /bin/ps (7,631,684 samples, 0.00%)</title><rect x="252753.1" y="125" width="0.2" height="15.0" fill="rgb(236,161,34)" rx="2" ry="2" />
+<text text-anchor="" x="252756.11" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>99 devctl (35,361,784 samples, 0.00%)</title><rect x="251870.3" y="157" width="0.8" height="15.0" fill="rgb(232,138,30)" rx="2" ry="2" />
+<text text-anchor="" x="251873.34" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>all (12,620,212,845,590 samples, 100%)</title><rect x="10.0" y="221" width="252758.0" height="15.0" fill="rgb(255,230,55)" rx="2" ry="2" />
+<text text-anchor="" x="13.00" y="231.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT random_device_h_proc (301,890,682 samples, 0.00%)</title><rect x="251620.3" y="173" width="6.1" height="15.0" fill="rgb(234,165,31)" rx="2" ry="2" />
+<text text-anchor="" x="251623.35" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>twiddle (9,672,382 samples, 0.00%)</title><rect x="251109.4" y="77" width="0.2" height="15.0" fill="rgb(240,107,39)" rx="2" ry="2" />
+<text text-anchor="" x="251112.41" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>280 /sbin/rtsol (16,160,902 samples, 0.00%)</title><rect x="251993.1" y="141" width="0.3" height="15.0" fill="rgb(235,224,33)" rx="2" ry="2" />
+<text text-anchor="" x="251996.07" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT init (41,854,182 samples, 0.00%)</title><rect x="251628.6" y="173" width="0.8" height="15.0" fill="rgb(236,165,34)" rx="2" ry="2" />
+<text text-anchor="" x="251631.58" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>517 /etc/rc.d/dhclient (10,555,738 samples, 0.00%)</title><rect x="252713.4" y="125" width="0.2" height="15.0" fill="rgb(241,158,39)" rx="2" ry="2" />
+<text text-anchor="" x="252716.40" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_PROBE vga (5,754,272 samples, 0.00%)</title><rect x="251470.2" y="157" width="0.2" height="15.0" fill="rgb(231,144,29)" rx="2" ry="2" />
+<text text-anchor="" x="251473.24" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT cpu_mp (337,660,942 samples, 0.00%)</title><rect x="251187.6" y="173" width="6.8" height="15.0" fill="rgb(232,165,30)" rx="2" ry="2" />
+<text text-anchor="" x="251190.62" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>728 savecore (21,624,252 samples, 0.00%)</title><rect x="252748.3" y="141" width="0.4" height="15.0" fill="rgb(246,133,45)" rx="2" ry="2" />
+<text text-anchor="" x="252751.31" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>vm_ksubmap_init (83,577,008 samples, 0.00%)</title><rect x="251179.7" y="157" width="1.7" height="15.0" fill="rgb(236,80,34)" rx="2" ry="2" />
+<text text-anchor="" x="251182.72" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>433 /usr/sbin/automount (11,086,172 samples, 0.00%)</title><rect x="252699.6" y="141" width="0.2" height="15.0" fill="rgb(238,169,36)" rx="2" ry="2" />
+<text text-anchor="" x="252702.60" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (222,249,854 samples, 0.00%)</title><rect x="251201.8" y="157" width="4.5" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251204.84" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>340 ifconfig (17,336,096 samples, 0.00%)</title><rect x="252679.6" y="125" width="0.3" height="15.0" fill="rgb(239,181,37)" rx="2" ry="2" />
+<text text-anchor="" x="252682.56" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>pmap_growkernel (31,196,314 samples, 0.00%)</title><rect x="251180.7" y="109" width="0.6" height="15.0" fill="rgb(237,160,35)" rx="2" ry="2" />
+<text text-anchor="" x="251183.72" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>707 install (5,001,980 samples, 0.00%)</title><rect x="252742.3" y="157" width="0.1" height="15.0" fill="rgb(230,147,28)" rx="2" ry="2" />
+<text text-anchor="" x="252745.28" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>625 expr (7,340,533 samples, 0.00%)</title><rect x="252734.4" y="157" width="0.2" height="15.0" fill="rgb(245,151,44)" rx="2" ry="2" />
+<text text-anchor="" x="252737.42" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>332 /etc/rc.d/devmatch (7,614,680 samples, 0.00%)</title><rect x="252677.8" y="125" width="0.2" height="15.0" fill="rgb(242,180,41)" rx="2" ry="2" />
+<text text-anchor="" x="252680.81" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>422 /usr/sbin/automount (7,267,210 samples, 0.00%)</title><rect x="252697.8" y="141" width="0.1" height="15.0" fill="rgb(238,177,36)" rx="2" ry="2" />
+<text text-anchor="" x="252700.76" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (112,123,300 samples, 0.00%)</title><rect x="251386.3" y="109" width="2.2" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251389.30" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>261 /etc/rc.d/netif (9,347,626 samples, 0.00%)</title><rect x="251913.9" y="157" width="0.2" height="15.0" fill="rgb(239,176,37)" rx="2" ry="2" />
+<text text-anchor="" x="251916.92" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>333 devmatch (5,389,760 samples, 0.00%)</title><rect x="252677.8" y="109" width="0.2" height="15.0" fill="rgb(242,177,41)" rx="2" ry="2" />
+<text text-anchor="" x="252680.85" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH ata (7,123,084 samples, 0.00%)</title><rect x="251258.2" y="77" width="0.2" height="15.0" fill="rgb(235,144,33)" rx="2" ry="2" />
+<text text-anchor="" x="251261.22" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kvprintf (10,057,738 samples, 0.00%)</title><rect x="251122.1" y="125" width="0.2" height="15.0" fill="rgb(81,228,81)" rx="2" ry="2" />
+<text text-anchor="" x="251125.13" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>142 /etc/rc.d/adjkerntz (9,112,538 samples, 0.00%)</title><rect x="251883.1" y="173" width="0.2" height="15.0" fill="rgb(243,111,42)" rx="2" ry="2" />
+<text text-anchor="" x="251886.13" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>25 rcorder (533,193,712 samples, 0.00%)</title><rect x="251839.8" y="173" width="10.7" height="15.0" fill="rgb(243,158,41)" rx="2" ry="2" />
+<text text-anchor="" x="251842.80" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>181 /etc/rc.d/random (8,129,374 samples, 0.00%)</title><rect x="251888.9" y="157" width="0.1" height="15.0" fill="rgb(235,149,33)" rx="2" ry="2" />
+<text text-anchor="" x="251891.86" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>170 dd (7,322,760 samples, 0.00%)</title><rect x="251887.6" y="157" width="0.1" height="15.0" fill="rgb(248,157,47)" rx="2" ry="2" />
+<text text-anchor="" x="251890.56" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>791 /sbin/sysctl (6,369,408 samples, 0.00%)</title><rect x="252751.8" y="157" width="0.1" height="15.0" fill="rgb(232,176,30)" rx="2" ry="2" />
+<text text-anchor="" x="252754.77" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>32 ln (5,717,324 samples, 0.00%)</title><rect x="251854.1" y="157" width="0.1" height="15.0" fill="rgb(239,166,37)" rx="2" ry="2" />
+<text text-anchor="" x="251857.11" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT vt_early_cons (31,772,064 samples, 0.00%)</title><rect x="251629.4" y="173" width="0.7" height="15.0" fill="rgb(244,165,43)" rx="2" ry="2" />
+<text text-anchor="" x="251632.43" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>cninit (1,624,437,814 samples, 0.01%)</title><rect x="251123.0" y="173" width="32.6" height="15.0" fill="rgb(236,128,34)" rx="2" ry="2" />
+<text text-anchor="" x="251126.04" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >cn..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>file_load /boot/kernel/kernel (630,525,808 samples, 0.00%)</title><rect x="251109.4" y="109" width="12.6" height="15.0" fill="rgb(237,183,35)" rx="2" ry="2" />
+<text text-anchor="" x="251112.40" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_sleep (355,141,962 samples, 0.00%)</title><rect x="251630.3" y="125" width="7.1" height="15.0" fill="rgb(122,122,240)" rx="2" ry="2" />
+<text text-anchor="" x="251633.26" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>431 /usr/sbin/automount (9,901,646 samples, 0.00%)</title><rect x="252699.2" y="141" width="0.2" height="15.0" fill="rgb(238,175,36)" rx="2" ry="2" />
+<text text-anchor="" x="252702.18" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>594 /etc/rc.d/mountcritremote (18,973,598 samples, 0.00%)</title><rect x="252727.0" y="173" width="0.3" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text text-anchor="" x="252729.96" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>186 dd (7,103,444 samples, 0.00%)</title><rect x="251891.9" y="157" width="0.1" height="15.0" fill="rgb(248,133,47)" rx="2" ry="2" />
+<text text-anchor="" x="251894.87" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>698 uname (6,032,590 samples, 0.00%)</title><rect x="252741.1" y="157" width="0.1" height="15.0" fill="rgb(241,162,40)" rx="2" ry="2" />
+<text text-anchor="" x="252744.06" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>mod_load kernel (647,022,358 samples, 0.01%)</title><rect x="251109.1" y="141" width="12.9" height="15.0" fill="rgb(237,140,35)" rx="2" ry="2" />
+<text text-anchor="" x="251112.07" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>206 /sbin/ifconfig (293,896,982 samples, 0.00%)</title><rect x="251904.0" y="157" width="5.9" height="15.0" fill="rgb(239,190,37)" rx="2" ry="2" />
+<text text-anchor="" x="251907.00" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>121 logger (27,122,576 samples, 0.00%)</title><rect x="251876.5" y="141" width="0.5" height="15.0" fill="rgb(240,124,39)" rx="2" ry="2" />
+<text text-anchor="" x="251879.46" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>148 /etc/rc.d/ip6addrctl (33,877,020 samples, 0.00%)</title><rect x="251885.7" y="173" width="0.7" height="15.0" fill="rgb(232,91,30)" rx="2" ry="2" />
+<text text-anchor="" x="251888.71" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>19 stty (12,776,386 samples, 0.00%)</title><rect x="251839.1" y="173" width="0.2" height="15.0" fill="rgb(241,122,39)" rx="2" ry="2" />
+<text text-anchor="" x="251842.05" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>425 /usr/sbin/automount (7,673,554 samples, 0.00%)</title><rect x="252698.2" y="141" width="0.1" height="15.0" fill="rgb(238,167,36)" rx="2" ry="2" />
+<text text-anchor="" x="252701.19" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>419 /usr/sbin/automount (7,051,032 samples, 0.00%)</title><rect x="252697.3" y="141" width="0.2" height="15.0" fill="rgb(238,159,36)" rx="2" ry="2" />
+<text text-anchor="" x="252700.32" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>414 /usr/sbin/automount (13,472,654 samples, 0.00%)</title><rect x="252696.5" y="141" width="0.2" height="15.0" fill="rgb(238,175,36)" rx="2" ry="2" />
+<text text-anchor="" x="252699.47" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (156,133,518 samples, 0.00%)</title><rect x="251155.6" y="157" width="3.1" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251158.58" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>424 /usr/sbin/automount (6,954,790 samples, 0.00%)</title><rect x="252698.1" y="141" width="0.1" height="15.0" fill="rgb(238,170,36)" rx="2" ry="2" />
+<text text-anchor="" x="252701.05" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH pcib (6,728,289,527 samples, 0.05%)</title><rect x="251251.4" y="125" width="134.8" height="15.0" fill="rgb(232,144,30)" rx="2" ry="2" />
+<text text-anchor="" x="251254.42" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DEVICE_ATTACH pcib</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>122 logger (25,659,476 samples, 0.00%)</title><rect x="251876.5" y="125" width="0.5" height="15.0" fill="rgb(240,121,39)" rx="2" ry="2" />
+<text text-anchor="" x="251879.49" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>614 gpart (35,838,690 samples, 0.00%)</title><rect x="252732.2" y="157" width="0.7" height="15.0" fill="rgb(239,159,37)" rx="2" ry="2" />
+<text text-anchor="" x="252735.18" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DELAY (1,615,044,564 samples, 0.01%)</title><rect x="251123.2" y="157" width="32.4" height="15.0" fill="rgb(115,115,234)" rx="2" ry="2" />
+<text text-anchor="" x="251126.23" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DE..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_io (24,396,178 samples, 0.00%)</title><rect x="250979.1" y="141" width="0.5" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="250982.14" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>read (12,694,562 samples, 0.00%)</title><rect x="251109.1" y="125" width="0.3" height="15.0" fill="rgb(241,184,40)" rx="2" ry="2" />
+<text text-anchor="" x="251112.12" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>92 devctl (11,176,612 samples, 0.00%)</title><rect x="251868.2" y="157" width="0.2" height="15.0" fill="rgb(232,117,30)" rx="2" ry="2" />
+<text text-anchor="" x="251871.16" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_edd_io (11,582,148 samples, 0.00%)</title><rect x="251109.1" y="93" width="0.3" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="251112.12" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT kbdmuxmodule (94,279,338 samples, 0.00%)</title><rect x="251210.8" y="173" width="1.9" height="15.0" fill="rgb(237,165,35)" rx="2" ry="2" />
+<text text-anchor="" x="251213.85" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>418 /usr/sbin/automount (6,978,992 samples, 0.00%)</title><rect x="252697.2" y="141" width="0.1" height="15.0" fill="rgb(238,163,36)" rx="2" ry="2" />
+<text text-anchor="" x="252700.18" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>56 /etc/rc.d/root (158,822,394 samples, 0.00%)</title><rect x="251859.7" y="173" width="3.2" height="15.0" fill="rgb(241,129,39)" rx="2" ry="2" />
+<text text-anchor="" x="251862.72" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (101,138,132 samples, 0.00%)</title><rect x="251462.1" y="109" width="2.0" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251465.07" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>151 /usr/sbin/ip6addrctl (6,155,004 samples, 0.00%)</title><rect x="251886.1" y="157" width="0.1" height="15.0" fill="rgb(232,109,30)" rx="2" ry="2" />
+<text text-anchor="" x="251889.07" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>608 /etc/rc.d/mdconfig2 (7,017,416 samples, 0.00%)</title><rect x="252731.8" y="157" width="0.1" height="15.0" fill="rgb(244,152,43)" rx="2" ry="2" />
+<text text-anchor="" x="252734.77" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>704 freebsd-version (10,616,474 samples, 0.00%)</title><rect x="252741.7" y="157" width="0.2" height="15.0" fill="rgb(247,156,46)" rx="2" ry="2" />
+<text text-anchor="" x="252744.73" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DELAY (250,724,610 samples, 0.00%)</title><rect x="251160.8" y="157" width="5.0" height="15.0" fill="rgb(115,115,234)" rx="2" ry="2" />
+<text text-anchor="" x="251163.82" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>606 /usr/sbin/newsyslog (125,645,178 samples, 0.00%)</title><rect x="252729.2" y="157" width="2.5" height="15.0" fill="rgb(248,158,48)" rx="2" ry="2" />
+<text text-anchor="" x="252732.19" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>718 /bin/ps (5,967,838 samples, 0.00%)</title><rect x="252745.8" y="141" width="0.2" height="15.0" fill="rgb(236,139,34)" rx="2" ry="2" />
+<text text-anchor="" x="252748.84" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bufinit (29,070,872 samples, 0.00%)</title><rect x="251181.4" y="157" width="0.6" height="15.0" fill="rgb(236,111,34)" rx="2" ry="2" />
+<text text-anchor="" x="251184.40" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (141,982,706 samples, 0.00%)</title><rect x="251606.3" y="157" width="2.9" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251609.32" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>307 /sbin/ifconfig (26,073,635 samples, 0.00%)</title><rect x="252670.4" y="157" width="0.6" height="15.0" fill="rgb(239,179,37)" rx="2" ry="2" />
+<text text-anchor="" x="252673.44" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>read (536,089,680 samples, 0.00%)</title><rect x="251109.4" y="93" width="10.7" height="15.0" fill="rgb(241,184,40)" rx="2" ry="2" />
+<text text-anchor="" x="251112.41" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (140,474,098 samples, 0.00%)</title><rect x="251184.8" y="157" width="2.8" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251187.81" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>210 /sbin/ifconfig (21,840,748 samples, 0.00%)</title><rect x="251910.0" y="141" width="0.4" height="15.0" fill="rgb(239,204,37)" rx="2" ry="2" />
+<text text-anchor="" x="251912.98" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>110 grep (24,779,511 samples, 0.00%)</title><rect x="251873.8" y="173" width="0.5" height="15.0" fill="rgb(245,132,44)" rx="2" ry="2" />
+<text text-anchor="" x="251876.76" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>795 /etc/rc.d/sysctl_lastload (67,110,429 samples, 0.00%)</title><rect x="252752.1" y="173" width="1.4" height="15.0" fill="rgb(243,163,41)" rx="2" ry="2" />
+<text text-anchor="" x="252755.11" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kdb_init (156,274,102 samples, 0.00%)</title><rect x="251155.6" y="173" width="3.1" height="15.0" fill="rgb(236,162,34)" rx="2" ry="2" />
+<text text-anchor="" x="251158.58" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>726 /bin/realpath (7,356,146 samples, 0.00%)</title><rect x="252746.3" y="157" width="0.1" height="15.0" fill="rgb(240,140,39)" rx="2" ry="2" />
+<text text-anchor="" x="252749.26" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>130 find (14,432,582 samples, 0.00%)</title><rect x="251879.2" y="141" width="0.3" height="15.0" fill="rgb(248,122,48)" rx="2" ry="2" />
+<text text-anchor="" x="251882.19" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>776 /etc/rc.d/utx (13,104,550 samples, 0.00%)</title><rect x="252751.0" y="173" width="0.3" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text text-anchor="" x="252754.00" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>89 /etc/rc.d/devmatch (43,649,266 samples, 0.00%)</title><rect x="251867.3" y="157" width="0.9" height="15.0" fill="rgb(242,146,41)" rx="2" ry="2" />
+<text text-anchor="" x="251870.29" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>119 kldload (38,753,932 samples, 0.00%)</title><rect x="251875.3" y="157" width="0.7" height="15.0" fill="rgb(243,103,41)" rx="2" ry="2" />
+<text text-anchor="" x="251878.25" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DELAY (1,498,881,757 samples, 0.01%)</title><rect x="251332.8" y="77" width="30.0" height="15.0" fill="rgb(115,115,234)" rx="2" ry="2" />
+<text text-anchor="" x="251335.75" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DE..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH psmcpnp (2,783,661,677 samples, 0.02%)</title><rect x="251414.5" y="125" width="55.7" height="15.0" fill="rgb(248,144,48)" rx="2" ry="2" />
+<text text-anchor="" x="251417.49" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DEVIC..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>lapic_init (141,081,094 samples, 0.00%)</title><rect x="251182.0" y="157" width="2.8" height="15.0" fill="rgb(236,107,34)" rx="2" ry="2" />
+<text text-anchor="" x="251184.98" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>236 /etc/rc.d/netif (8,223,894 samples, 0.00%)</title><rect x="251911.9" y="141" width="0.2" height="15.0" fill="rgb(239,175,37)" rx="2" ry="2" />
+<text text-anchor="" x="251914.89" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>335 /etc/pccard_ether (96,613,770 samples, 0.00%)</title><rect x="252678.0" y="141" width="1.9" height="15.0" fill="rgb(240,170,38)" rx="2" ry="2" />
+<text text-anchor="" x="252680.97" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>mi_startup (23,538,557,618 samples, 0.19%)</title><rect x="251158.8" y="189" width="471.4" height="15.0" fill="rgb(238,92,36)" rx="2" ry="2" />
+<text text-anchor="" x="251161.75" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >mi_startup</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>37 /sbin/md5 (34,476,593 samples, 0.00%)</title><rect x="251854.5" y="141" width="0.6" height="15.0" fill="rgb(247,196,47)" rx="2" ry="2" />
+<text text-anchor="" x="251857.45" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH uhub (9,672,718,976 samples, 0.08%)</title><rect x="251640.0" y="125" width="193.8" height="15.0" fill="rgb(227,144,25)" rx="2" ry="2" />
+<text text-anchor="" x="251643.03" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DEVICE_ATTACH uhub</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (98,466,131 samples, 0.00%)</title><rect x="251378.2" y="77" width="2.0" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251381.25" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT intr_config_hooks (109,300,641 samples, 0.00%)</title><rect x="251626.4" y="173" width="2.2" height="15.0" fill="rgb(235,165,33)" rx="2" ry="2" />
+<text text-anchor="" x="251629.39" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (109,217,351 samples, 0.00%)</title><rect x="251464.1" y="93" width="2.2" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251467.09" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>818 /usr/sbin/sshd (30,453,451 samples, 0.00%)</title><rect x="252764.8" y="157" width="0.6" height="15.0" fill="rgb(244,131,43)" rx="2" ry="2" />
+<text text-anchor="" x="252767.80" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>54 fsck_ufs (76,917,694 samples, 0.00%)</title><rect x="251856.8" y="141" width="1.6" height="15.0" fill="rgb(236,139,34)" rx="2" ry="2" />
+<text text-anchor="" x="251859.84" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>409 awk (28,438,515 samples, 0.00%)</title><rect x="252695.7" y="109" width="0.6" height="15.0" fill="rgb(232,164,29)" rx="2" ry="2" />
+<text text-anchor="" x="252698.68" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>147 /usr/sbin/mixer (16,235,462 samples, 0.00%)</title><rect x="251885.4" y="157" width="0.3" height="15.0" fill="rgb(245,95,44)" rx="2" ry="2" />
+<text text-anchor="" x="251888.38" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kvprintf (37,876,134 samples, 0.00%)</title><rect x="251120.1" y="93" width="0.8" height="15.0" fill="rgb(81,228,81)" rx="2" ry="2" />
+<text text-anchor="" x="251123.15" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>BIOS (12,530,764,567,345 samples, 99.29%)</title><rect x="10.0" y="205" width="250966.5" height="15.0" fill="rgb(246,124,46)" rx="2" ry="2" />
+<text text-anchor="" x="13.00" y="215.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >BIOS</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>607 /etc/rc.d/mdconfig2 (10,018,366 samples, 0.00%)</title><rect x="252731.7" y="173" width="0.2" height="15.0" fill="rgb(244,155,43)" rx="2" ry="2" />
+<text text-anchor="" x="252734.71" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>76 /etc/rc.d/kldxref (22,708,074 samples, 0.00%)</title><rect x="251864.9" y="173" width="0.5" height="15.0" fill="rgb(245,113,44)" rx="2" ry="2" />
+<text text-anchor="" x="251867.95" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>605 /etc/rc.d/newsyslog (129,882,000 samples, 0.00%)</title><rect x="252729.1" y="173" width="2.6" height="15.0" fill="rgb(248,161,48)" rx="2" ry="2" />
+<text text-anchor="" x="252732.11" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>615 egrep (69,442,277 samples, 0.00%)</title><rect x="252733.0" y="157" width="1.3" height="15.0" fill="rgb(245,156,44)" rx="2" ry="2" />
+<text text-anchor="" x="252735.95" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>771 /sbin/nextboot (9,267,678 samples, 0.00%)</title><rect x="252750.7" y="157" width="0.1" height="15.0" fill="rgb(241,186,39)" rx="2" ry="2" />
+<text text-anchor="" x="252753.66" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>136 /etc/rc.d/ldconfig (95,628,336 samples, 0.00%)</title><rect x="251881.1" y="157" width="1.9" height="15.0" fill="rgb(239,103,37)" rx="2" ry="2" />
+<text text-anchor="" x="251884.06" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_sleep (9,669,051,302 samples, 0.08%)</title><rect x="251640.1" y="109" width="193.7" height="15.0" fill="rgb(122,122,240)" rx="2" ry="2" />
+<text text-anchor="" x="251643.10" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_sleep</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_io (455,329,778 samples, 0.00%)</title><rect x="251109.6" y="77" width="9.1" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="251112.61" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT trademark (9,540,552 samples, 0.00%)</title><rect x="251159.3" y="173" width="0.2" height="15.0" fill="rgb(237,165,35)" rx="2" ry="2" />
+<text text-anchor="" x="251162.31" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>720 /usr/bin/protect (6,060,532 samples, 0.00%)</title><rect x="252746.0" y="157" width="0.1" height="15.0" fill="rgb(241,159,39)" rx="2" ry="2" />
+<text text-anchor="" x="252748.98" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>129 /etc/rc.d/ldconfig (67,719,252 samples, 0.00%)</title><rect x="251879.2" y="157" width="1.4" height="15.0" fill="rgb(239,98,37)" rx="2" ry="2" />
+<text text-anchor="" x="251882.19" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_edd_io (6,945,182 samples, 0.00%)</title><rect x="250978.5" y="125" width="0.1" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="250981.47" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>415 /usr/sbin/automount (7,418,336 samples, 0.00%)</title><rect x="252696.7" y="141" width="0.2" height="15.0" fill="rgb(238,172,36)" rx="2" ry="2" />
+<text text-anchor="" x="252699.74" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>267 /etc/rc.d/netif (5,877,892 samples, 0.00%)</title><rect x="251914.2" y="141" width="0.1" height="15.0" fill="rgb(239,157,37)" rx="2" ry="2" />
+<text text-anchor="" x="251917.19" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>125 /etc/rc.d/ldconfig (109,583,756 samples, 0.00%)</title><rect x="251877.0" y="157" width="2.2" height="15.0" fill="rgb(239,111,37)" rx="2" ry="2" />
+<text text-anchor="" x="251880.00" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>449 /sbin/dhclient-script (16,570,387 samples, 0.00%)</title><rect x="252701.9" y="109" width="0.3" height="15.0" fill="rgb(236,144,34)" rx="2" ry="2" />
+<text text-anchor="" x="252704.88" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (81,805,825 samples, 0.00%)</title><rect x="251251.6" y="109" width="1.6" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251254.58" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>445 /sbin/dhclient (532,001,737 samples, 0.00%)</title><rect x="252701.8" y="125" width="10.6" height="15.0" fill="rgb(241,157,39)" rx="2" ry="2" />
+<text text-anchor="" x="252704.77" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>434 /etc/rc.d/dhclient (628,929,332 samples, 0.00%)</title><rect x="252699.8" y="141" width="12.6" height="15.0" fill="rgb(241,165,39)" rx="2" ry="2" />
+<text text-anchor="" x="252702.83" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>423 /usr/sbin/automount (7,079,956 samples, 0.00%)</title><rect x="252697.9" y="141" width="0.2" height="15.0" fill="rgb(238,174,36)" rx="2" ry="2" />
+<text text-anchor="" x="252700.91" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>139 tr (78,147,830 samples, 0.00%)</title><rect x="251881.4" y="141" width="1.6" height="15.0" fill="rgb(235,93,33)" rx="2" ry="2" />
+<text text-anchor="" x="251884.41" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (1,391,558,860 samples, 0.01%)</title><rect x="251297.2" y="93" width="27.9" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251300.19" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>518 /bin/ps (7,770,634 samples, 0.00%)</title><rect x="252713.4" y="109" width="0.2" height="15.0" fill="rgb(236,155,34)" rx="2" ry="2" />
+<text text-anchor="" x="252716.45" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>817 /usr/sbin/sshd (519,599,912 samples, 0.00%)</title><rect x="252754.4" y="157" width="10.4" height="15.0" fill="rgb(244,134,43)" rx="2" ry="2" />
+<text text-anchor="" x="252757.40" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>604 mkdir (22,057,436 samples, 0.00%)</title><rect x="252728.7" y="157" width="0.4" height="15.0" fill="rgb(238,164,37)" rx="2" ry="2" />
+<text text-anchor="" x="252731.67" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_sleep (51,007,086 samples, 0.00%)</title><rect x="251836.1" y="157" width="1.0" height="15.0" fill="rgb(122,122,240)" rx="2" ry="2" />
+<text text-anchor="" x="251839.10" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>824 /etc/rc.d/msgs (16,106,598 samples, 0.00%)</title><rect x="252765.9" y="173" width="0.4" height="15.0" fill="rgb(237,138,35)" rx="2" ry="2" />
+<text text-anchor="" x="252768.93" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT uma_startup3 (9,674,848 samples, 0.00%)</title><rect x="251201.6" y="173" width="0.2" height="15.0" fill="rgb(244,165,43)" rx="2" ry="2" />
+<text text-anchor="" x="251204.60" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH atrtc (164,864,714 samples, 0.00%)</title><rect x="251225.1" y="125" width="3.3" height="15.0" fill="rgb(228,144,25)" rx="2" ry="2" />
+<text text-anchor="" x="251228.10" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>262 /etc/rc.d/netif (6,407,616 samples, 0.00%)</title><rect x="251913.9" y="141" width="0.1" height="15.0" fill="rgb(239,173,37)" rx="2" ry="2" />
+<text text-anchor="" x="251916.92" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (255,651,554 samples, 0.00%)</title><rect x="251189.3" y="157" width="5.1" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251192.26" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>120 logger (41,689,648 samples, 0.00%)</title><rect x="251876.2" y="157" width="0.8" height="15.0" fill="rgb(240,127,39)" rx="2" ry="2" />
+<text text-anchor="" x="251879.16" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>395 /sbin/ifconfig (20,530,926 samples, 0.00%)</title><rect x="252693.5" y="125" width="0.4" height="15.0" fill="rgb(239,195,37)" rx="2" ry="2" />
+<text text-anchor="" x="252696.49" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>loader (7,292,982,710 samples, 0.06%)</title><rect x="250976.5" y="205" width="146.1" height="15.0" fill="rgb(243,157,41)" rx="2" ry="2" />
+<text text-anchor="" x="250979.53" y="215.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >loader</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH smbios (91,778,558 samples, 0.00%)</title><rect x="251219.9" y="141" width="1.8" height="15.0" fill="rgb(238,144,37)" rx="2" ry="2" />
+<text text-anchor="" x="251222.86" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (9,540,014 samples, 0.00%)</title><rect x="251159.3" y="157" width="0.2" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251162.31" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>697 mktemp (7,201,628 samples, 0.00%)</title><rect x="252740.9" y="157" width="0.2" height="15.0" fill="rgb(237,165,35)" rx="2" ry="2" />
+<text text-anchor="" x="252743.91" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (614,931,025 samples, 0.00%)</title><rect x="251593.8" y="141" width="12.3" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251596.77" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>98 kldload (48,781,106 samples, 0.00%)</title><rect x="251869.4" y="157" width="0.9" height="15.0" fill="rgb(243,143,41)" rx="2" ry="2" />
+<text text-anchor="" x="251872.37" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>553 /sbin/route (5,764,714 samples, 0.00%)</title><rect x="252722.4" y="157" width="0.1" height="15.0" fill="rgb(240,150,38)" rx="2" ry="2" />
+<text text-anchor="" x="252725.41" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>104 /etc/rc.d/cleanvar (97,989,280 samples, 0.00%)</title><rect x="251871.7" y="173" width="2.0" height="15.0" fill="rgb(231,124,28)" rx="2" ry="2" />
+<text text-anchor="" x="251874.73" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>435 kenv (5,169,372 samples, 0.00%)</title><rect x="252699.8" y="125" width="0.1" height="15.0" fill="rgb(237,162,35)" rx="2" ry="2" />
+<text text-anchor="" x="252702.83" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>349 /etc/rc.d/devmatch (10,515,890 samples, 0.00%)</title><rect x="252681.3" y="125" width="0.2" height="15.0" fill="rgb(242,152,41)" rx="2" ry="2" />
+<text text-anchor="" x="252684.34" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_PROBE uart (5,753,008 samples, 0.00%)</title><rect x="251237.3" y="125" width="0.2" height="15.0" fill="rgb(239,144,37)" rx="2" ry="2" />
+<text text-anchor="" x="251240.34" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>86 rmdir (47,372,984 samples, 0.00%)</title><rect x="251866.0" y="157" width="1.0" height="15.0" fill="rgb(238,105,37)" rx="2" ry="2" />
+<text text-anchor="" x="251869.03" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH atrtc (325,869,291 samples, 0.00%)</title><rect x="251480.9" y="157" width="6.5" height="15.0" fill="rgb(228,144,25)" rx="2" ry="2" />
+<text text-anchor="" x="251483.91" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>777 utx (10,593,598 samples, 0.00%)</title><rect x="252751.0" y="157" width="0.3" height="15.0" fill="rgb(242,167,40)" rx="2" ry="2" />
+<text text-anchor="" x="252754.05" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>521 /etc/rc.d/routing (457,673,376 samples, 0.00%)</title><rect x="252713.6" y="173" width="9.2" height="15.0" fill="rgb(243,172,42)" rx="2" ry="2" />
+<text text-anchor="" x="252716.61" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>603 rm (36,881,888 samples, 0.00%)</title><rect x="252727.8" y="157" width="0.8" height="15.0" fill="rgb(229,168,26)" rx="2" ry="2" />
+<text text-anchor="" x="252730.81" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT apic_setup_io (235,878,100 samples, 0.00%)</title><rect x="251201.8" y="173" width="4.8" height="15.0" fill="rgb(238,165,37)" rx="2" ry="2" />
+<text text-anchor="" x="251204.83" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>128 tr (102,542,363 samples, 0.00%)</title><rect x="251877.1" y="141" width="2.0" height="15.0" fill="rgb(235,101,33)" rx="2" ry="2" />
+<text text-anchor="" x="251880.09" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>611 /etc/rc.d/virecover (13,240,846 samples, 0.00%)</title><rect x="252731.9" y="173" width="0.3" height="15.0" fill="rgb(238,169,37)" rx="2" ry="2" />
+<text text-anchor="" x="252734.91" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kva_import (31,203,984 samples, 0.00%)</title><rect x="251180.7" y="125" width="0.6" height="15.0" fill="rgb(238,130,36)" rx="2" ry="2" />
+<text text-anchor="" x="251183.72" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>306 sleep (2,617,215,670 samples, 0.02%)</title><rect x="252618.0" y="157" width="52.4" height="15.0" fill="rgb(127,127,244)" rx="2" ry="2" />
+<text text-anchor="" x="252621.03" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >306 s..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>clockcalib (5,608,142,355 samples, 0.04%)</title><rect x="251493.8" y="157" width="112.3" height="15.0" fill="rgb(234,102,32)" rx="2" ry="2" />
+<text text-anchor="" x="251496.77" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >clockcalib</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>22 kenv (6,230,308 samples, 0.00%)</title><rect x="251839.5" y="173" width="0.2" height="15.0" fill="rgb(237,174,35)" rx="2" ry="2" />
+<text text-anchor="" x="251842.54" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>417 /usr/sbin/automount (7,466,884 samples, 0.00%)</title><rect x="252697.0" y="141" width="0.2" height="15.0" fill="rgb(238,166,36)" rx="2" ry="2" />
+<text text-anchor="" x="252700.03" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>624 /etc/rc.d/devfs (324,373,278 samples, 0.00%)</title><rect x="252734.4" y="173" width="6.5" height="15.0" fill="rgb(236,154,34)" rx="2" ry="2" />
+<text text-anchor="" x="252737.42" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (127,177,913 samples, 0.00%)</title><rect x="251491.2" y="157" width="2.6" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251494.22" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>427 /usr/sbin/automount (7,520,744 samples, 0.00%)</title><rect x="252698.5" y="141" width="0.1" height="15.0" fill="rgb(238,161,36)" rx="2" ry="2" />
+<text text-anchor="" x="252701.48" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (98,504,550 samples, 0.00%)</title><rect x="251208.8" y="157" width="2.0" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251211.79" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT rdrandmodule (241,330,568 samples, 0.00%)</title><rect x="251194.5" y="173" width="4.8" height="15.0" fill="rgb(237,165,35)" rx="2" ry="2" />
+<text text-anchor="" x="251197.51" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (149,106,816 samples, 0.00%)</title><rect x="251222.1" y="109" width="3.0" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251225.11" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>146 cat (6,850,620 samples, 0.00%)</title><rect x="251885.2" y="157" width="0.2" height="15.0" fill="rgb(232,98,30)" rx="2" ry="2" />
+<text text-anchor="" x="251888.24" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH vgapci (85,549,536 samples, 0.00%)</title><rect x="251258.4" y="93" width="1.7" height="15.0" fill="rgb(243,144,42)" rx="2" ry="2" />
+<text text-anchor="" x="251261.37" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (106,241,627 samples, 0.00%)</title><rect x="251384.0" y="77" width="2.1" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251386.99" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (692,855,110 samples, 0.01%)</title><rect x="251165.8" y="157" width="13.9" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251168.85" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_edd_io (23,878,766 samples, 0.00%)</title><rect x="250979.2" y="125" width="0.4" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="250982.15" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>97 kldstat (6,991,740 samples, 0.00%)</title><rect x="251869.2" y="157" width="0.2" height="15.0" fill="rgb(229,148,26)" rx="2" ry="2" />
+<text text-anchor="" x="251872.23" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT vnet_init_tcp_vnet_init (29,841,494 samples, 0.00%)</title><rect x="251609.3" y="173" width="0.6" height="15.0" fill="rgb(236,165,34)" rx="2" ry="2" />
+<text text-anchor="" x="251612.35" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>191 fsync (18,770,220 samples, 0.00%)</title><rect x="251892.3" y="157" width="0.3" height="15.0" fill="rgb(238,144,36)" rx="2" ry="2" />
+<text text-anchor="" x="251895.25" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>90 devmatch (40,917,679 samples, 0.00%)</title><rect x="251867.3" y="141" width="0.8" height="15.0" fill="rgb(242,128,41)" rx="2" ry="2" />
+<text text-anchor="" x="251870.29" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>598 /etc/rc.d/dmesg (21,259,280 samples, 0.00%)</title><rect x="252727.3" y="173" width="0.5" height="15.0" fill="rgb(240,170,39)" rx="2" ry="2" />
+<text text-anchor="" x="252730.34" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>57 mount (130,698,372 samples, 0.00%)</title><rect x="251859.7" y="157" width="2.6" height="15.0" fill="rgb(238,180,36)" rx="2" ry="2" />
+<text text-anchor="" x="251862.72" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>309 /etc/rc.d/ipfilter (181,560,136 samples, 0.00%)</title><rect x="252672.1" y="157" width="3.6" height="15.0" fill="rgb(240,172,38)" rx="2" ry="2" />
+<text text-anchor="" x="252675.09" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>94 /etc/rc.d/devmatch (6,514,706 samples, 0.00%)</title><rect x="251868.7" y="141" width="0.1" height="15.0" fill="rgb(242,107,41)" rx="2" ry="2" />
+<text text-anchor="" x="251871.71" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>308 /sbin/ifconfig (56,349,146 samples, 0.00%)</title><rect x="252671.0" y="157" width="1.1" height="15.0" fill="rgb(239,176,37)" rx="2" ry="2" />
+<text text-anchor="" x="252673.97" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DELAY (2,350,067,108 samples, 0.02%)</title><rect x="251414.5" y="93" width="47.1" height="15.0" fill="rgb(115,115,234)" rx="2" ry="2" />
+<text text-anchor="" x="251417.49" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DELAY</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>709 /etc/rc.d/syslogd (181,794,400 samples, 0.00%)</title><rect x="252742.5" y="173" width="3.6" height="15.0" fill="rgb(248,140,47)" rx="2" ry="2" />
+<text text-anchor="" x="252745.46" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_edd_io (19,749,204 samples, 0.00%)</title><rect x="250976.8" y="157" width="0.4" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="250979.84" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>26 /etc/rc.d/sysctl (12,499,010 samples, 0.00%)</title><rect x="251850.5" y="173" width="0.2" height="15.0" fill="rgb(232,153,30)" rx="2" ry="2" />
+<text text-anchor="" x="251853.48" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>79 /etc/rc.d/var_run (11,775,740 samples, 0.00%)</title><rect x="251865.4" y="173" width="0.3" height="15.0" fill="rgb(243,154,41)" rx="2" ry="2" />
+<text text-anchor="" x="251868.44" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>531 /etc/rc.d/routing (98,741,628 samples, 0.00%)</title><rect x="252716.8" y="157" width="2.0" height="15.0" fill="rgb(243,167,42)" rx="2" ry="2" />
+<text text-anchor="" x="252719.79" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (73,851,716 samples, 0.00%)</title><rect x="251253.3" y="77" width="1.4" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251256.26" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>202 /etc/rc.d/netif (38,540,028,272 samples, 0.31%)</title><rect x="251903.8" y="173" width="771.9" height="15.0" fill="rgb(239,203,37)" rx="2" ry="2" />
+<text text-anchor="" x="251906.85" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >202 /etc/rc.d/netif</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>318 /usr/bin/id (18,746,500 samples, 0.00%)</title><rect x="252675.9" y="157" width="0.4" height="15.0" fill="rgb(240,171,39)" rx="2" ry="2" />
+<text text-anchor="" x="252678.89" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>538 /sbin/sysctl (7,692,372 samples, 0.00%)</title><rect x="252719.0" y="157" width="0.1" height="15.0" fill="rgb(232,144,30)" rx="2" ry="2" />
+<text text-anchor="" x="252721.95" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>279 /sbin/rtsol (28,561,180,451 samples, 0.23%)</title><rect x="251993.1" y="157" width="572.0" height="15.0" fill="rgb(235,201,33)" rx="2" ry="2" />
+<text text-anchor="" x="251996.07" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >279 /sbin/rtsol</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>357 /etc/rc.d/devmatch (11,115,281 samples, 0.00%)</title><rect x="252688.8" y="125" width="0.2" height="15.0" fill="rgb(242,154,41)" rx="2" ry="2" />
+<text text-anchor="" x="252691.76" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH atkbdc (1,413,687,382 samples, 0.01%)</title><rect x="251386.2" y="125" width="28.3" height="15.0" fill="rgb(236,144,35)" rx="2" ry="2" />
+<text text-anchor="" x="251389.18" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >D..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT vfs (40,442,002 samples, 0.00%)</title><rect x="251490.1" y="173" width="0.8" height="15.0" fill="rgb(236,165,34)" rx="2" ry="2" />
+<text text-anchor="" x="251493.06" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>124 /etc/rc.d/ldconfig (306,213,472 samples, 0.00%)</title><rect x="251877.0" y="173" width="6.1" height="15.0" fill="rgb(239,114,37)" rx="2" ry="2" />
+<text text-anchor="" x="251880.00" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>811 /etc/rc.d/sshd (6,405,910 samples, 0.00%)</title><rect x="252753.8" y="157" width="0.1" height="15.0" fill="rgb(244,153,43)" rx="2" ry="2" />
+<text text-anchor="" x="252756.80" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>20 /sbin/sysctl (6,681,190 samples, 0.00%)</title><rect x="251839.3" y="173" width="0.1" height="15.0" fill="rgb(232,184,30)" rx="2" ry="2" />
+<text text-anchor="" x="251842.31" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>111 rcorder (17,979,800 samples, 0.00%)</title><rect x="251874.3" y="173" width="0.3" height="15.0" fill="rgb(243,129,41)" rx="2" ry="2" />
+<text text-anchor="" x="251877.26" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>380 /etc/rc.d/devmatch (11,735,650 samples, 0.00%)</title><rect x="252691.4" y="125" width="0.2" height="15.0" fill="rgb(242,216,41)" rx="2" ry="2" />
+<text text-anchor="" x="252694.40" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>367 /etc/rc.d/devmatch (54,750,702 samples, 0.00%)</title><rect x="252689.4" y="141" width="1.1" height="15.0" fill="rgb(242,149,41)" rx="2" ry="2" />
+<text text-anchor="" x="252692.37" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (167,342,470 samples, 0.00%)</title><rect x="251254.9" y="77" width="3.3" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251257.87" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>getmemsize (19,814,060 samples, 0.00%)</title><rect x="251122.6" y="173" width="0.4" height="15.0" fill="rgb(245,170,44)" rx="2" ry="2" />
+<text text-anchor="" x="251125.59" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>822 /usr/sbin/cron (20,480,182 samples, 0.00%)</title><rect x="252765.5" y="157" width="0.4" height="15.0" fill="rgb(249,145,49)" rx="2" ry="2" />
+<text text-anchor="" x="252768.52" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>762 /usr/local/etc/rc.d/git_daemon (5,987,208 samples, 0.00%)</title><rect x="252750.2" y="173" width="0.1" height="15.0" fill="rgb(253,133,53)" rx="2" ry="2" />
+<text text-anchor="" x="252753.21" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>559 /etc/rc.d/defaultroute (161,597,540 samples, 0.00%)</title><rect x="252722.9" y="173" width="3.3" height="15.0" fill="rgb(240,131,38)" rx="2" ry="2" />
+<text text-anchor="" x="252725.93" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>730 savecore (20,473,946 samples, 0.00%)</title><rect x="252748.3" y="125" width="0.4" height="15.0" fill="rgb(246,154,45)" rx="2" ry="2" />
+<text text-anchor="" x="252751.34" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>361 /etc/rc.d/devmatch (9,403,367 samples, 0.00%)</title><rect x="252689.0" y="125" width="0.2" height="15.0" fill="rgb(242,168,41)" rx="2" ry="2" />
+<text text-anchor="" x="252692.05" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT vfs_hash (9,115,206 samples, 0.00%)</title><rect x="251490.9" y="173" width="0.2" height="15.0" fill="rgb(241,165,40)" rx="2" ry="2" />
+<text text-anchor="" x="251493.87" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>373 devmatch (6,277,401 samples, 0.00%)</title><rect x="252690.3" y="109" width="0.2" height="15.0" fill="rgb(242,212,41)" rx="2" ry="2" />
+<text text-anchor="" x="252693.33" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>289 /etc/rc.d/netif (5,191,884 samples, 0.00%)</title><rect x="252565.2" y="141" width="0.1" height="15.0" fill="rgb(239,196,37)" rx="2" ry="2" />
+<text text-anchor="" x="252568.17" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>410 /etc/rc.d/power_profile (6,254,620 samples, 0.00%)</title><rect x="252696.3" y="125" width="0.1" height="15.0" fill="rgb(237,188,35)" rx="2" ry="2" />
+<text text-anchor="" x="252699.28" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>733 savecore (6,386,318 samples, 0.00%)</title><rect x="252748.6" y="109" width="0.1" height="15.0" fill="rgb(246,144,45)" rx="2" ry="2" />
+<text text-anchor="" x="252751.62" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>561 /etc/rc.d/defaultroute (131,443,846 samples, 0.00%)</title><rect x="252723.2" y="157" width="2.6" height="15.0" fill="rgb(240,152,38)" rx="2" ry="2" />
+<text text-anchor="" x="252726.17" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_edd_io (438,491,316 samples, 0.00%)</title><rect x="251109.9" y="61" width="8.8" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="251112.94" y="71.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>317 /etc/rc.d/ppp (21,512,174 samples, 0.00%)</title><rect x="252675.8" y="173" width="0.5" height="15.0" fill="rgb(246,174,45)" rx="2" ry="2" />
+<text text-anchor="" x="252678.83" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT witwarn (9,596,168 samples, 0.00%)</title><rect x="251160.2" y="173" width="0.2" height="15.0" fill="rgb(249,165,49)" rx="2" ry="2" />
+<text text-anchor="" x="251163.21" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>627 /sbin/devfs (5,764,864 samples, 0.00%)</title><rect x="252734.6" y="157" width="0.1" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text text-anchor="" x="252737.63" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>238 /etc/rc.d/netif (11,644,472 samples, 0.00%)</title><rect x="251912.1" y="157" width="0.2" height="15.0" fill="rgb(239,168,37)" rx="2" ry="2" />
+<text text-anchor="" x="251915.10" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>450 /sbin/ifconfig (7,478,818 samples, 0.00%)</title><rect x="252702.1" y="93" width="0.1" height="15.0" fill="rgb(239,168,37)" rx="2" ry="2" />
+<text text-anchor="" x="252705.07" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT vm_mem (5,728,834 samples, 0.00%)</title><rect x="251160.4" y="173" width="0.1" height="15.0" fill="rgb(236,165,34)" rx="2" ry="2" />
+<text text-anchor="" x="251163.41" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH ehci (296,504,182 samples, 0.00%)</title><rect x="251380.2" y="93" width="6.0" height="15.0" fill="rgb(240,144,39)" rx="2" ry="2" />
+<text text-anchor="" x="251383.24" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_PROBE acpi_timer (82,596,106 samples, 0.00%)</title><rect x="251228.4" y="125" width="1.7" height="15.0" fill="rgb(245,144,44)" rx="2" ry="2" />
+<text text-anchor="" x="251231.40" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>63 /etc/rc.d/mdconfig (8,101,528 samples, 0.00%)</title><rect x="251863.0" y="157" width="0.1" height="15.0" fill="rgb(239,136,37)" rx="2" ry="2" />
+<text text-anchor="" x="251865.99" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>727 savecore (61,512,722 samples, 0.00%)</title><rect x="252747.5" y="157" width="1.2" height="15.0" fill="rgb(246,137,45)" rx="2" ry="2" />
+<text text-anchor="" x="252750.51" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>512 /etc/rc.d/dhclient (59,444,106 samples, 0.00%)</title><rect x="252712.4" y="141" width="1.2" height="15.0" fill="rgb(241,174,39)" rx="2" ry="2" />
+<text text-anchor="" x="252715.42" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT timecounter (142,079,382 samples, 0.00%)</title><rect x="251606.3" y="173" width="2.9" height="15.0" fill="rgb(240,165,38)" rx="2" ry="2" />
+<text text-anchor="" x="251609.32" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>562 /sbin/ifconfig (20,028,350 samples, 0.00%)</title><rect x="252723.2" y="141" width="0.4" height="15.0" fill="rgb(239,149,37)" rx="2" ry="2" />
+<text text-anchor="" x="252726.17" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>344 /etc/rc.d/devmatch (52,032,500 samples, 0.00%)</title><rect x="252680.5" y="141" width="1.0" height="15.0" fill="rgb(242,168,41)" rx="2" ry="2" />
+<text text-anchor="" x="252683.51" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>vfs_mountroot_wait (10,166,547,067 samples, 0.08%)</title><rect x="251630.2" y="157" width="203.7" height="15.0" fill="rgb(237,128,35)" rx="2" ry="2" />
+<text text-anchor="" x="251633.24" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >vfs_mountroot_wait</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kvprintf (20,888,662 samples, 0.00%)</title><rect x="250978.1" y="189" width="0.4" height="15.0" fill="rgb(81,228,81)" rx="2" ry="2" />
+<text text-anchor="" x="250981.05" y="199.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>174 dd (7,311,483 samples, 0.00%)</title><rect x="251888.0" y="157" width="0.2" height="15.0" fill="rgb(248,145,47)" rx="2" ry="2" />
+<text text-anchor="" x="251891.01" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (103,353,590 samples, 0.00%)</title><rect x="251410.1" y="93" width="2.1" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251413.10" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>362 /etc/rc.d/devmatch (6,656,236 samples, 0.00%)</title><rect x="252689.0" y="109" width="0.2" height="15.0" fill="rgb(242,165,41)" rx="2" ry="2" />
+<text text-anchor="" x="252692.05" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>319 /etc/rc.d/resolv (6,121,318 samples, 0.00%)</title><rect x="252676.3" y="173" width="0.1" height="15.0" fill="rgb(229,167,26)" rx="2" ry="2" />
+<text text-anchor="" x="252679.27" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_io (11,938,524 samples, 0.00%)</title><rect x="251109.1" y="109" width="0.3" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="251112.12" y="119.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>613 /etc/rc.d/gptboot (110,350,934 samples, 0.00%)</title><rect x="252732.2" y="173" width="2.2" height="15.0" fill="rgb(241,163,39)" rx="2" ry="2" />
+<text text-anchor="" x="252735.18" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>read (8,565,778 samples, 0.00%)</title><rect x="250978.5" y="157" width="0.1" height="15.0" fill="rgb(241,184,40)" rx="2" ry="2" />
+<text text-anchor="" x="250981.47" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>mod_loadkld /boot/kernel/kernel (631,269,530 samples, 0.01%)</title><rect x="251109.4" y="125" width="12.6" height="15.0" fill="rgb(237,140,35)" rx="2" ry="2" />
+<text text-anchor="" x="251112.39" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>248 /etc/rc.d/netif (6,292,434 samples, 0.00%)</title><rect x="251913.0" y="141" width="0.1" height="15.0" fill="rgb(239,163,37)" rx="2" ry="2" />
+<text text-anchor="" x="251916.01" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>bd_io (20,156,092 samples, 0.00%)</title><rect x="250976.8" y="173" width="0.4" height="15.0" fill="rgb(238,125,37)" rx="2" ry="2" />
+<text text-anchor="" x="250979.84" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>115 /bin/hostname (6,460,536 samples, 0.00%)</title><rect x="251875.0" y="157" width="0.1" height="15.0" fill="rgb(241,116,40)" rx="2" ry="2" />
+<text text-anchor="" x="251878.01" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>75 rmdir (7,851,562 samples, 0.00%)</title><rect x="251864.8" y="157" width="0.1" height="15.0" fill="rgb(238,118,37)" rx="2" ry="2" />
+<text text-anchor="" x="251867.79" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>180 dd (10,705,818 samples, 0.00%)</title><rect x="251888.6" y="157" width="0.3" height="15.0" fill="rgb(248,152,47)" rx="2" ry="2" />
+<text text-anchor="" x="251891.64" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT random_devicemodule (98,533,092 samples, 0.00%)</title><rect x="251208.8" y="173" width="2.0" height="15.0" fill="rgb(237,165,35)" rx="2" ry="2" />
+<text text-anchor="" x="251211.79" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>339 /sbin/ifconfig (48,408,328 samples, 0.00%)</title><rect x="252678.6" y="125" width="1.0" height="15.0" fill="rgb(239,157,37)" rx="2" ry="2" />
+<text text-anchor="" x="252681.59" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>714 /usr/sbin/syslogd (69,083,614 samples, 0.00%)</title><rect x="252744.3" y="157" width="1.4" height="15.0" fill="rgb(248,151,47)" rx="2" ry="2" />
+<text text-anchor="" x="252747.32" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DELAY (690,995,858 samples, 0.01%)</title><rect x="251260.1" y="77" width="13.8" height="15.0" fill="rgb(115,115,234)" rx="2" ry="2" />
+<text text-anchor="" x="251263.10" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>185 fsync (25,054,470 samples, 0.00%)</title><rect x="251891.4" y="157" width="0.5" height="15.0" fill="rgb(238,136,36)" rx="2" ry="2" />
+<text text-anchor="" x="251894.37" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DELAY (77,923,658 samples, 0.00%)</title><rect x="251187.7" y="157" width="1.6" height="15.0" fill="rgb(115,115,234)" rx="2" ry="2" />
+<text text-anchor="" x="251190.70" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>184 dirname (7,114,608 samples, 0.00%)</title><rect x="251889.1" y="157" width="0.2" height="15.0" fill="rgb(241,140,40)" rx="2" ry="2" />
+<text text-anchor="" x="251892.14" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>203 /etc/rc.d/netif (7,676,350 samples, 0.00%)</title><rect x="251903.8" y="157" width="0.2" height="15.0" fill="rgb(239,200,37)" rx="2" ry="2" />
+<text text-anchor="" x="251906.85" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DELAY (649,792,434 samples, 0.01%)</title><rect x="251365.2" y="77" width="13.0" height="15.0" fill="rgb(115,115,234)" rx="2" ry="2" />
+<text text-anchor="" x="251368.23" y="87.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_vprintf (94,175,126 samples, 0.00%)</title><rect x="251210.9" y="157" width="1.8" height="15.0" fill="rgb(85,232,85)" rx="2" ry="2" />
+<text text-anchor="" x="251213.85" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>327 /etc/rc.d/devmatch (61,553,466 samples, 0.00%)</title><rect x="252676.7" y="141" width="1.3" height="15.0" fill="rgb(242,169,41)" rx="2" ry="2" />
+<text text-anchor="" x="252679.73" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>SYSINIT apic_setup_local (281,619,018 samples, 0.00%)</title><rect x="251182.0" y="173" width="5.6" height="15.0" fill="rgb(229,165,26)" rx="2" ry="2" />
+<text text-anchor="" x="251184.98" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>388 /etc/rc.d/devmatch (8,535,924 samples, 0.00%)</title><rect x="252692.7" y="125" width="0.2" height="15.0" fill="rgb(242,191,41)" rx="2" ry="2" />
+<text text-anchor="" x="252695.73" y="135.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH acpi (12,389,865,449 samples, 0.10%)</title><rect x="251222.1" y="141" width="248.1" height="15.0" fill="rgb(242,144,40)" rx="2" ry="2" />
+<text text-anchor="" x="251225.10" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >DEVICE_ATTACH acpi</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>291 /etc/rc.d/netif (7,475,746 samples, 0.00%)</title><rect x="252565.3" y="157" width="0.1" height="15.0" fill="rgb(239,216,37)" rx="2" ry="2" />
+<text text-anchor="" x="252568.29" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>46 /etc/rc.d/swap (10,418,624 samples, 0.00%)</title><rect x="251855.5" y="173" width="0.3" height="15.0" fill="rgb(233,137,31)" rx="2" ry="2" />
+<text text-anchor="" x="251858.55" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>420 /usr/sbin/automount (7,476,168 samples, 0.00%)</title><rect x="252697.5" y="141" width="0.1" height="15.0" fill="rgb(238,183,36)" rx="2" ry="2" />
+<text text-anchor="" x="252700.47" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>kvprintf (9,044,284 samples, 0.00%)</title><rect x="250976.5" y="173" width="0.2" height="15.0" fill="rgb(81,228,81)" rx="2" ry="2" />
+<text text-anchor="" x="250979.53" y="183.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>DEVICE_ATTACH isab (76,111,386 samples, 0.00%)</title><rect x="251253.2" y="93" width="1.5" height="15.0" fill="rgb(226,144,23)" rx="2" ry="2" />
+<text text-anchor="" x="251256.22" y="103.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>102 grep (15,877,738 samples, 0.00%)</title><rect x="251871.3" y="157" width="0.3" height="15.0" fill="rgb(245,131,44)" rx="2" ry="2" />
+<text text-anchor="" x="251874.32" y="167.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>312 /etc/rc.d/ipfilter (35,854,010 samples, 0.00%)</title><rect x="252675.0" y="141" width="0.7" height="15.0" fill="rgb(240,190,38)" rx="2" ry="2" />
+<text text-anchor="" x="252678.01" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>375 /etc/rc.d/devmatch (58,267,496 samples, 0.00%)</title><rect x="252690.5" y="141" width="1.1" height="15.0" fill="rgb(242,205,41)" rx="2" ry="2" />
+<text text-anchor="" x="252693.47" y="151.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+</svg>
