@@ -62,3 +62,11 @@ img {
 footer p {
   text-align: center;
 }
+
+.svg_image_center {
+  display: flex;
+  justify-content: center; /* Centers horizontally */
+  align-items: center;     /* Centers vertically (optional) */
+  height: 100vh;           /* needed if you want vertical centering */
+  border: none;
+}

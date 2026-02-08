@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Dive into the Microcorruption CTF</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="description" content="A walk through of Microcorruption Embedded CTF." />
+        <link rel="stylesheet" href="../../style.css">
+    </head>
+    <body>
+        <h1>UNLOCK: A Deep dive into the Microcorruption CTF</h1>
+        <p class="meta">Lahiru Gunathilake 2026</p>
+        <img src="../../images/Microcorruption/microcorruption_theme.png" alt="Theme image">
+
+        <p><a href="https://microcorruption.com/">Microcorruption</a> is a browser-based "Capture The Flag" (CTF) competition that focuses on embedded security. Unlike typical web or network-based CTFs, this challenges players to reverse-engineer and exploit a fictional piece of hardware: the <a href="https://lockitpro.com/">LockIT Pro</a>. Our role of this contest is the attacker trying to bypass the security of a smart lock system. The goal of each level is to find an input (a password or a specific sequence of bytes in hex code) that unlocks the device</p>
+
+        <p>It features a fully functional, in-browser debugger that simulates the device. You are given the:
+            <ul>
+                <li>Disassembled code</li>
+                <li>Live memory dump</li>
+                <li>Register states</li>
+                <li>Current instruction in the program counter</li>
+                <li>Debugger console</li>
+                <li>I/O console</li>
+            </ul>
+        As shown in the following figure.
+        </p>
+
+        <img src="../../images/Microcorruption/Microcorruption_UI.png" alt="Microcorruption UI">
+        <p class="img_caption">User interface of Microcorruption</p>
+
+        <p>Microcorruption provides a good understanding to you to master the fundamentals of how a CPU actually works. Key learning outcomes include:
+            <ul>
+                <li>Assembly & Architecture: Understanding how memory, registers, and instructions interact</li>
+                <li>CPU Internals: Grasping core concepts like the Stack, endianness, and function calling conventions.</li>
+                <li>Control Flow: Learning how conditional jumps and flags control program execution.</li>
+                <li>Analysis: Developing the critical thinking skills needed to debug and reverse-engineer code without source files.</li>
+            </ul>
+        </p>
+
+        <h2>The Microcontroller: Texas Instruments MSP430</h2>
+        <p>
+            The CTF runs on an emulator for the <a href="https://www.ti.com/product-category/microcontrollers-processors/mcus/msp430/overview.html">MSP430</a>, a real-world, ultra-low-power 16-bit RISC mixed-signal microcontroller produced by <a href="https://www.ti.com/">Texas Instruments</a>. It is widely used in industrial sensors, utility meters, and simple embedded devices, making the skills learned here directly applicable to real IoT security. The MSP430 uses <a href="https://en.wikipedia.org/wiki/Von_Neumann_architecture">Von Neumann architecture</a>, meaning code and data share the same address space. This is a critical detail for exploitation, as it allows attackers to inject executable code into data buffers (if not protected). Being a 16-bit system means addresses are 2 bytes long. This simplifies the math compared to 32-bit or 64-bit systems but introduces unique constraints on payload size and addressability.
+        </p>
+
+        <img src="../../images/Microcorruption/Von_Neumann_Architecture.png" alt="Von Neumann architecture" width="50%">
+        <p class="img_caption">Von Neumann architecture (<a href="https://en.wikipedia.org/wiki/Von_Neumann_architecture">Image source</a>)</p>
+
+
+        <p>
+            The MSP430 assembly syntax typically follows the <code>OPERATION SOURCE DESTINATION</code> format.
+        </p>
+
+        <p>Ex: <code>mov #0x10, r15</code> moves the hex value 0x10 into register r15.</p>
+
+        <p>
+            There are 16 registers.
+            
+            <ul>
+                <li>R0 (PC): Program Counter</li>
+                
+                <li>R1 (SP): Stack Pointer</li>
+                
+                <li>R2 (SR): Status Register (Zero, Carry, Overflow, Negative)</li>
+
+                <li>R4 - R15: General-purpose registers</li>
+            </ul>
+            
+            The MSP430 is <a href="https://en.wikipedia.org/wiki/Endianness">Little-Endian</a>. Because of that, bytes of the exploits must be entered in reverse order. For example, to overwrite a return address to 0x4446, the input the input should be \x46\x44.
+        </p>
+        <p>
+            Key instructions to keep in mind:
+            <ul>
+                <li>cmp: Compare two values (updates status flags) Ex: <code>cmp #0x8, r14</code>. Z flag will be set to <code>1</code>, if both values are equal. N flag will be set to <code>1</code>, if destination is smaller than the source</li>
+                <li>jeq / jnz: Jump if equal / Jump if not zero (controls program flow)</li>
+                <li>call / ret: Handles function calls and returns</li>
+            </ul>
+        </p>
+
+        <h2>Solutions and Problem-Solving Strategies</h2>
+        <p>The solutions for the challenges are discussed in the following sections</p>
+
+        <footer>
+            <p>&copy; 2025 Lahiru Gunathilake</p>
+        </footer>
+    </body>
+</html>
