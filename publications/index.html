@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Publications - Lahiru Gunathilake</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+  
+  <script>
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  </script>
+</head>
+<body>
+<div class="shell">
+
+  <nav class="tab-nav">
+    <a class="tab-btn" href="../">About</a>
+    <a class="tab-btn" href="../projects/">Projects</a>
+    <a class="tab-btn" href="../blogs/">Blogs</a>
+    <a class="tab-btn active" href="./">Publications</a>
+    <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">Light/Dark Theme</button>
+
+  </nav>
+
+  <section class="tab-panel">
+    <p class="section-label">Publications</p>
+
+    <div class="pub-item">
+      <p class="pub-venue">In preparation · 2026</p>
+      <p class="pub-title">An Iteratively Designed IoT Physiological Data Acquisition and Transmission System</p>
+      <p class="pub-authors"><span class="me">L. Gunathilake</span> et al.</p>
+    </div>
+    
+  </section>
+
+  <footer class="site-footer">
+    <span>&copy; 2026 Lahiru Gunathilake</span>
+  </footer>
+</div>
+
+<script>
+  function toggleTheme() {
+    const html = document.documentElement;
+    const currentTheme = html.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+  }
+</script>
+</body>
+</html>

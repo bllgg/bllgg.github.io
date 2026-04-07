@@ -1,27 +1,90 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="google-site-verification" content="qxf3WwCk47isUp9U-H3ncj4sOEWU72OAVr8HlWPuapQ" />
-        <meta name="description" content="Lahiru Gunathilake’s personal website." />
-        <title>Lahiru Gunathilake - Personal Website</title>
-        <link rel="icon" type="image/x-icon" href="images/favicon.ico">
-        <link rel="stylesheet" href="style.css">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="google-site-verification" content="qxf3WwCk47isUp9U-H3ncj4sOEWU72OAVr8HlWPuapQ" />
+  <meta name="description" content="Lahiru Gunathilake — Embedded Systems, Neuroscience & Open Source." />
+  <title>Lahiru Gunathilake</title>
+  <link rel="icon" type="image/x-icon" href="images/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  
+  <script>
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  </script>
+</head>
+<body>
+<div class="shell">
+  <nav class="tab-nav">
+    <a class="tab-btn active" href="./">About</a>
+    <a class="tab-btn" href="projects/">Projects</a>
+    <a class="tab-btn" href="blogs/">Blogs</a>
+    <a class="tab-btn" href="publications/">Publications</a>
 
-    </head>
-    <body>
-        <header>
-            <h1>Lahiru Gunathilake</h1>
-        </header>
-        <main>
-            <section>
-                <h2>Welcome to My Personal Website</h2>
-                <p>This is a place where I share my projects, thoughts, and experiences.</p>
-            </section>
-        </main>
-        <footer>
-            <p>&copy; 2025 Lahiru Gunathilake</p>
-        </footer>
-    </body>
+    <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">Light/Dark Theme</button>
+  </nav>
+
+  <header class="site-header">
+    <h1><a href="index.html">Lahiru <em>Gunathilake</em></a></h1>
+    <p class="tagline">Embedded Systems · Neuroscience · Open Source</p>
+  </header>
+
+  <section class="tab-panel">
+    <p class="section-label">About me</p>
+    <div class="about-grid">
+      <div class="about-bio">
+        <p>I'm a <span class="hl">researcher and engineer</span> based in Melbourne, Australia, working at the intersection of physiological signal acquisition, embedded real-time systems, and computational neuroscience.</p>
+        <p>My work spans low-level firmware and RTOS internals — including active contribution to the <span class="hl2">RTEMS</span> open-source project — through to multi-channel EEG/ECG data pipelines and machine-learning models for environmental prediction.</p>
+        <p>I care deeply about systems that are correct, reproducible, and understandable. Whether that's a CAN stack running on bare metal or a signal-processing pipeline for neural data, the same rigour applies.</p>
+      </div>
+      <aside class="about-meta">
+        <div class="meta-block">
+          <p class="meta-label">Interests</p>
+          <ul>
+            <li>Real-time Operating Systems</li>
+            <li>Embedded hardware</li>
+            <li>Physiological signals (EEG/ECG)</li>
+            <li>Computational neuroscience</li>
+            <li>ML for environmental data</li>
+          </ul>
+        </div>
+        <div class="meta-block">
+          <p class="meta-label">Technologies</p>
+          <ul>
+            <li>RTEMS / FreeRTOS</li>
+            <li>C / Python</li>
+            <li>CAN Bus / SPI / I²C</li>
+            <li>BeagleBone Black</li>
+            <li>MNE-Python / TVB</li>
+          </ul>
+        </div>
+        <div class="meta-block">
+          <p class="meta-label">Links</p>
+          <ul>
+            <li><a href="https://github.com/bllgg">GitHub</a></li>
+            <li><a href="https://www.linkedin.com/in/lahiru-gunathilake/">LinkedIn</a></li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <span>&copy; 2026 Lahiru Gunathilake</span>
+  </footer>
+</div>
+
+<script>
+  function toggleTheme() {
+    const html = document.documentElement;
+    const currentTheme = html.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+  }
+</script>
+</body>
 </html>
