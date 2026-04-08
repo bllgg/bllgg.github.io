@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Projects - Lahiru Gunathilake</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+</head>
+  <script>
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  </script>
+<body>
+  <div class="shell">
+    <nav class="tab-nav">
+      <a class="tab-btn" href="../">About</a>
+      <a class="tab-btn active" href="./">Projects</a>
+      <a class="tab-btn" href="../blogs/">Blogs</a>
+      <a class="tab-btn" href="../publications/">Publications</a>
+
+      <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">Light/Dark Theme</button>
+    </nav>
+
+    <section class="tab-panel">
+      <p class="section-label">FreeBSD</p>
+      <div class="card-list">
+        <a class="card" href="freebsd_boot_process_optimization/">
+          <p class="card-tag">Operating Systems · Performance</p>
+          <p class="card-title">FreeBSD Boot Process Optimization</p>
+          <p class="card-desc">Profiling and reducing kernel boot latency on embedded targets — timestamped boot logs, kernel configuration trimming, and driver deferral analysis.</p>
+          <span class="card-arrow">→</span>
+        </a>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <span>&copy; <span id="year"></span> Lahiru Gunathilake</span>
+    </footer>
+  </div>
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const currentTheme = html.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', newTheme);
+      localStorage.setItem('theme', newTheme);
+    }
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

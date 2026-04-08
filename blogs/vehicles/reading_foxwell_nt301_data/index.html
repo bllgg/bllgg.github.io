@@ -5,63 +5,89 @@
   <title>Read Foxwell NT301 Recorded Data on Ubuntu</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="../../../style.css">
+  <script>
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  </script>
 </head>
 <body>
-    <h1>Read Foxwell NT301 Recorded Data on Ubuntu (Without Windows or Wine)</h1>
-    <p class="meta">Lahiru Gunathilake 2026</p>
+    <div class="shell">
+        <nav class="tab-nav">
+            <a class="tab-btn" href="../../../">About</a>
+            <a class="tab-btn" href="../../../projects/">Projects</a>
+            <a class="tab-btn active" href="../../../blogs/">Blogs</a>
+            <a class="tab-btn" href="../../../publications/">Publications</a>
+            
+            <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">Light/Dark Theme</button>
+        </nav>
+        <article class="article-content">
+            <h1>Read Foxwell NT301 Recorded Data on Ubuntu (Without Windows or Wine)</h1>
+            <p class="meta">Lahiru Gunathilake 2026</p>
 
-    <img src="../../../images/Foxwell_NT301/theme.jpeg" alt="Theme image">
-    <p>
-        If you have ever tried to update or read data from a car scanner like the Foxwell NT301 on Linux, you have likely hit a wall. The official "NTWonders" software is Windows-only, and trying to get it to work via Wine often feels like a full-time job with zero pay.
-        
-        But here is the secret: The scanner doesn't actually need the software to give you the data. When you put the NT301 into "Print" mode, it streams your car's saved diagnostic data as raw text over the USB port.
-        
-        Here is how to "hack" your way into your car's data using nothing but the Ubuntu terminal.
-    </p>
+            <img src="../../../images/Foxwell_NT301/theme.jpeg" alt="Theme image">
+            <p>
+                If you have ever tried to update or read data from a car scanner like the Foxwell NT301 on Linux, you have likely hit a wall. The official "NTWonders" software is Windows-only, and trying to get it to work via Wine often feels like a full-time job with zero pay.
+                
+                But here is the secret: The scanner doesn't actually need the software to give you the data. When you put the NT301 into "Print" mode, it streams your car's saved diagnostic data as raw text over the USB port.
+                
+                Here is how to "hack" your way into your car's data using nothing but the Ubuntu terminal.
+            </p>
 
-    <h2>Identify the scanner</h2>
-    <p>
-        First, plug your Foxwell into your USB port and power it on. In Ubuntu, the device is recognized as a serial modem. Open your terminal and find out where it lives:
-    </p>
-    <pre><code>ls /dev/ttyACM*</code></pre>
+            <h2>Identify the scanner</h2>
+            <p>
+                First, plug your Foxwell into your USB port and power it on. In Ubuntu, the device is recognized as a serial modem. Open your terminal and find out where it lives:
+            </p>
+            <pre><code>ls /dev/ttyACM*</code></pre>
 
-    <p>
-        You should see something like <code>/dev/ttyACM0</code>. That is your scanner.
-    </p>
+            <p>
+                You should see something like <code>/dev/ttyACM0</code>. That is your scanner.
+            </p>
 
-    <h2>Permission settings</h2>
-    <p>
-        By default, Ubuntu will not let you "listen" to a serial port for security reasons. Give yourself permission by adding your user to the <code>dialout</code> group:
-    </p>
-    <pre><code>sudo usermod -a -G dialout $USER</code></pre>
-    <p>(Note: You will need to log out and back in for this to take effect!)</p>
+            <h2>Permission settings</h2>
+            <p>
+                By default, Ubuntu will not let you "listen" to a serial port for security reasons. Give yourself permission by adding your user to the <code>dialout</code> group:
+            </p>
+            <pre><code>sudo usermod -a -G dialout $USER</code></pre>
+            <p>(Note: You will need to log out and back in for this to take effect!)</p>
 
-    <H2>Stream the data</H2>
-    <p>
-        Now, we are going to use the cat command to "pour" the data from the scanner directly into the terminal. Run this:
-    </p>
-    <pre><code>sudo cat /dev/ttyACM0</code></pre>
-    
-    <p>
-        Now, on your Foxwell NT301 physical device:
+            <H2>Stream the data</H2>
+            <p>
+                Now, we are going to use the cat command to "pour" the data from the scanner directly into the terminal. Run this:
+            </p>
+            <pre><code>sudo cat /dev/ttyACM0</code></pre>
+            
+            <p>
+                Now, on your Foxwell NT301 physical device:
 
-        <ul>
-            <li>Go to "Print Data" and press any key to continue</li>
-            <li>Select the data you want to view (Engine data, Automatic transmttion data or All data).</li>
-            <li>Select the data location</li>
-            <li>Watch your terminal. You should see your engine RPM, coolant temperature, and DTCs scrolling by in plain English!</li>
-        </ul>
-    </p>
-    <img src="../../../images/Foxwell_NT301/Screenshot_serial_print.png" alt="Screenshot of data streaming">
+                <ul>
+                    <li>Go to "Print Data" and press any key to continue</li>
+                    <li>Select the data you want to view (Engine data, Automatic transmttion data or All data).</li>
+                    <li>Select the data location</li>
+                    <li>Watch your terminal. You should see your engine RPM, coolant temperature, and DTCs scrolling by in plain English!</li>
+                </ul>
+            </p>
+            <img src="../../../images/Foxwell_NT301/Screenshot_serial_print.png" alt="Screenshot of data streaming">
 
-    <h2>Export a report</h2>
-    <p>
-        Viewing data in a terminal is cool, but if you want to save it for your mechanic or a forum, you should save it to a file. Run this command to save the stream to a text file (change the name my_car_report as any name you need):
-    </p>
-    <pre><code>sudo cat /dev/ttyACM0 > my_car_report.txt</code></pre>
-    <p>Once the scanner goes back to data locations window, press Ctrl+C in the terminal to stop the capture. You now have a clean .txt file ready to be emailed or printed.</p>
-    <footer>
-            <p>&copy; 2026 Lahiru Gunathilake</p>
-    </footer>
+            <h2>Export a report</h2>
+            <p>
+                Viewing data in a terminal is cool, but if you want to save it for your mechanic or a forum, you should save it to a file. Run this command to save the stream to a text file (change the name my_car_report as any name you need):
+            </p>
+            <pre><code>sudo cat /dev/ttyACM0 > my_car_report.txt</code></pre>
+            <p>Once the scanner goes back to data locations window, press Ctrl+C in the terminal to stop the capture. You now have a clean .txt file ready to be emailed or printed.</p>
+        </article>
+        <footer class="site-footer">
+                <p>&copy; <span id="year"></span> Lahiru Gunathilake</p>
+        </footer>
+    </div>
+    <script>
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+        document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
 </body>
 </html>
