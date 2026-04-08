@@ -24,7 +24,7 @@
     </nav>
     <article class="article-content">
       <h1>Optimizing the FreeBSD Boot Process - Kernel Space</h1>
-      <p class="meta">Lahiru Gunathilake</p>
+      <p class="meta">Lahiru Gunathilake 2025</p>
 
       <img src="../../images/FreeBSD_Optimization_Kernel/Theme_image.png" alt="FreeBSD Boot Flame Chart">
 
@@ -157,8 +157,8 @@
     Significant gains were achieved by reducing unnecessary waits in input device initialization and by optimizing checksum benchmarking in ZFS initialization.
     While certain delays such as those in <code>vfs_mountroot</code> remain unavoidable, the applied improvements represent meaningful progress toward faster and more efficient FreeBSD boot performance.
   </p> -->
-    <footer>
-              <p>&copy; 2025 Lahiru Gunathilake</p>
+    <footer class="site-footer">
+              <p>&copy; <span id="year"></span> Lahiru Gunathilake</p>
     </footer>
   </div>
   <script>
@@ -169,6 +169,7 @@
         html.setAttribute('data-theme', newTheme);
         localStorage.setItem('theme', newTheme);
     }
+    document.getElementById('year').textContent = new Date().getFullYear();
   </script>
 </body>
 </html>

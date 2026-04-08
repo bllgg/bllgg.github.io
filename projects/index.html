@@ -36,7 +36,7 @@
     </section>
 
     <footer class="site-footer">
-      <span>&copy; 2026 Lahiru Gunathilake</span>
+      <span>&copy; <span id="year"></span> Lahiru Gunathilake</span>
     </footer>
   </div>
   <script>
@@ -47,6 +47,7 @@
       html.setAttribute('data-theme', newTheme);
       localStorage.setItem('theme', newTheme);
     }
+    document.getElementById('year').textContent = new Date().getFullYear();
   </script>
 </body>
 </html>

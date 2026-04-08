@@ -75,8 +75,8 @@
             <pre><code>sudo cat /dev/ttyACM0 > my_car_report.txt</code></pre>
             <p>Once the scanner goes back to data locations window, press Ctrl+C in the terminal to stop the capture. You now have a clean .txt file ready to be emailed or printed.</p>
         </article>
-        <footer>
-                <p>&copy; 2026 Lahiru Gunathilake</p>
+        <footer class="site-footer">
+                <p>&copy; <span id="year"></span> Lahiru Gunathilake</p>
         </footer>
     </div>
     <script>
@@ -87,6 +87,7 @@
             html.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
         }
+        document.getElementById('year').textContent = new Date().getFullYear();
     </script>
 </body>
 </html>

@@ -36,7 +36,7 @@
     <p class="section-label">About me</p>
     <div class="about-grid">
       <div class="about-bio">
-        <p>I am a <span class="hl">researcher and a computer science engineer</span> and my primary interests lie in <i>Edge Intelligence, Operating Systems, Real Time Operating systems, Kernel Module Development, Computer Vision, Robotics, Internet of Things, Sensor Fusion, emotion recognition and 3D modelling</i>. I am particularly drawn to embedded systems projects designed for resource-constrained environments. I believe that my current skills, industry experience, and background in computer science and engineering will enable me to make meaningful contributions and explore new directions for research.</p>
+        <p style="text-align: justify;">I am a <span class="hl">researcher and a computer science engineer</span> and my primary interests lie in <i>Edge Intelligence, Operating Systems, Real Time Operating systems, Kernel Module Development, Computer Vision, Robotics, Internet of Things, Sensor Fusion, emotion recognition and 3D modelling</i>. I am particularly drawn to embedded systems projects designed for resource-constrained environments. I believe that my current skills, industry experience, and background in computer science and engineering will enable me to make meaningful contributions and explore new directions for research.</p>
       </div>
       <aside class="about-meta">
         <div class="meta-block">
@@ -51,7 +51,7 @@
           </ul>
         </div>
         <div class="meta-block">
-          <p class="meta-label">Technologies</p>
+          <p class="meta-label">Programming Languages</p>
           <ul>
             <li>C / C++</li>
             <li>Python</li>
@@ -71,7 +71,7 @@
   </section>
 
   <footer class="site-footer">
-    <span>&copy; 2026 Lahiru Gunathilake</span>
+    <span>&copy; <span id="year"></span> Lahiru Gunathilake</span>
   </footer>
 </div>
 
@@ -83,6 +83,7 @@
     html.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
   }
+  document.getElementById('year').textContent = new Date().getFullYear();
 </script>
 </body>
 </html>
