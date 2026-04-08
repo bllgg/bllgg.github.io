@@ -91,7 +91,13 @@ body {
   gap: 0; 
   border-bottom: 1px solid var(--border); 
   overflow-x: auto; 
-  scrollbar-width: none; 
+  scrollbar-width: none;
+
+  /* ── STICKY NAVIGATION ADDITIONS ── */
+  position: sticky;
+  top: 0;
+  z-index: 100; /* Ensures it stays on top of text and images */
+  background: var(--bg); /* Crucial: gives it a solid background so scrolling text doesn't bleed through */
 }
 .tab-nav::-webkit-scrollbar {
   display: none;
