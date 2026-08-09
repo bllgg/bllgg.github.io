@@ -153,7 +153,7 @@ body {
 .article-content h1 { font-family: var(--serif); font-size: 32px; color: var(--title); line-height: 1.2; margin-bottom: 10px; font-weight: 300; }
 .article-content .meta { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 30px; }
 .article-content h2 { color: var(--accent2); font-size: 20px; font-weight: normal; margin: 40px 0 15px; border-bottom: 1px solid var(--border); padding-bottom: 8px;}
-.article-content p { color: var(--textdim); margin-bottom: 20px; font-size: 15px; line-height: 1.8; }
+.article-content p { color: var(--textdim); margin-bottom: 20px; font-size: 15px; line-height: 1.8; text-align: justify;}
 .article-content ul { color: var(--textdim); margin-bottom: 20px; padding-left: 20px; }
 .article-content li { margin-bottom: 8px; }
 .article-content img { max-width: 100%; height: auto; border-radius: 4px; border: 1px solid var(--border); margin: 20px 0; display: block; }
