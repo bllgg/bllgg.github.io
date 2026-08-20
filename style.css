@@ -131,7 +131,7 @@ body {
 .meta-block a:hover { color: var(--accent); }
 
 /* ── Card list (projects / blogs) ── */
-.card-list { display: flex; flex-direction: column; gap: 2px; }
+.card-list { display: flex; flex-direction: column; gap: 2px; padding-bottom: 16px; }
 .card { display: block; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid transparent; padding: 22px 60px 22px 26px; text-decoration: none; color: inherit; position: relative; transition: border-left-color 0.18s, background 0.18s, transform 0.15s; }
 .card:hover { border-left-color: var(--accent); background: var(--border); transform: translateX(4px); }
 .card-tag { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
