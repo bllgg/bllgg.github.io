@@ -50,6 +50,23 @@ body {
   min-height: 100vh;
 }
 
+table {
+  width: 100%;
+  border-collapse: collapse; /* Prevents double lines */
+}
+
+th, td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #ddd; /* Creates the horizontal line */
+}
+
+.img_caption {
+  text-align: center !important;
+  font-style: italic;
+  font-size: 12px !important;
+}
+
 /* ── Header & Theme Toggle ── */
 .site-header {
   border-bottom: 1px solid var(--border);
